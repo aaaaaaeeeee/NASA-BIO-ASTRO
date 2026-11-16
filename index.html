@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>A.R.E.S. Bio-Twin OS · MIB</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+<script src="./ares-core.js?v=8"></script>
+<style>
+  :root { --bg:#050811; --cyan:#00F0FF; --amber:#FFB800; --red:#FF2A55; --green:#2BFF88; }
+  html,body { background:var(--bg); color:#cfe9ff; }
+  body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .mono { font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .panel { background:linear-gradient(180deg, rgba(0,240,255,.045), rgba(0,240,255,.01)); border:1px solid rgba(0,240,255,.22); border-radius:6px; position:relative; }
+  .panel::before { content:""; position:absolute; inset:-1px; border-radius:6px; pointer-events:none;
+    background: linear-gradient(var(--cyan),var(--cyan)) top left/10px 1px no-repeat, linear-gradient(var(--cyan),var(--cyan)) top left/1px 10px no-repeat,
+                linear-gradient(var(--cyan),var(--cyan)) bottom right/10px 1px no-repeat, linear-gradient(var(--cyan),var(--cyan)) bottom right/1px 10px no-repeat; }
+  .ptitle { font-family: ui-monospace, Menlo, monospace; letter-spacing:.14em; font-size:10.5px; color:var(--cyan); text-transform:uppercase; }
+  .grid-bg { background-image: linear-gradient(rgba(0,240,255,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(0,240,255,.05) 1px, transparent 1px); background-size: 22px 22px; }
+  .btn { font-family: ui-monospace, Menlo, monospace; font-size:11px; letter-spacing:.06em; border:1px solid rgba(0,240,255,.45); color:var(--cyan); padding:5px 9px; border-radius:4px; transition:all .15s; }
+  .btn:hover { background:rgba(0,240,255,.12); box-shadow:0 0 12px rgba(0,240,255,.25); }
+  .btn:disabled { opacity:.35; cursor:not-allowed; }
+  .btn-on { background:rgba(0,240,255,.18); color:#fff; }
+  .seg { display:flex; border:1px solid rgba(0,240,255,.35); border-radius:4px; overflow:hidden; }
+  .seg button { font-family: ui-monospace, Menlo, monospace; font-size:10.5px; padding:4px 8px; color:#8fb8cc; }
+  .seg button.on { background:rgba(0,240,255,.2); color:#fff; }
+  select, input[type=number] { background:#081222; border:1px solid rgba(0,240,255,.35); color:#cfe9ff; border-radius:4px; font-size:11px; padding:4px 6px; font-family: ui-monospace, Menlo, monospace; }
+  input[type=range] { -webkit-appearance:none; appearance:none; width:100%; height:4px; background:rgba(0,240,255,.18); border-radius:2px; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:13px; height:13px; border-radius:2px; background:var(--cyan); box-shadow:0 0 8px var(--cyan); cursor:pointer; }
+  .blink { animation: blink 1s steps(2) infinite; } @keyframes blink { 50% { opacity:.25; } }
+  .pulse-red { animation: pulsered 1.2s ease-in-out infinite; } @keyframes pulsered { 50% { box-shadow:0 0 0 1px var(--red), 0 0 22px rgba(255,42,85,.55); } }
+  .organ-crit { animation: organ 1s ease-in-out infinite; } @keyframes organ { 50% { opacity:.45; } }
+  .heartbeat { transform-box: fill-box; transform-origin:center; animation: hb var(--hb,0.9s) ease-out infinite; } @keyframes hb { 0%{transform:scale(1)} 12%{transform:scale(1.14)} 30%{transform:scale(1)} }
+  .scanline { position:absolute; left:0; right:0; height:2px; background:var(--cyan); box-shadow:0 0 14px 3px var(--cyan), 0 0 40px 8px rgba(0,240,255,.35); animation: sweep 30s linear forwards; }
+  .scanglow { position:absolute; left:0; right:0; top:0; background:linear-gradient(180deg, rgba(0,240,255,0), rgba(0,240,255,.10)); animation: sweepglow 30s linear forwards; }
+  @keyframes sweep { from { top:0% } to { top:100% } } @keyframes sweepglow { from { height:0% } to { height:100% } }
+  .badge-tip { visibility:hidden; opacity:0; transition:opacity .15s; }
+  .badge:hover .badge-tip { visibility:visible; opacity:1; }
+  ::-webkit-scrollbar { width:6px; height:6px } ::-webkit-scrollbar-thumb { background:rgba(0,240,255,.25); border-radius:3px }
+</style>
+</head>
+<body>
+<div id="root"><div class="mono" style="color:#00F0FF;padding:24px">A.R.E.S. BIO-TWIN OS · cargando módulos…</div></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useMemo, useSyncExternalStore, useCallback } = React;
+const { Engine, Serial, DSN, SCENARIOS, ZONES, assess, countermeasures, clamp, mean, ppO2Of } = window.ARES;
+
+/* ============================================================ constantes UI */
+const COL = { cyan: '#00F0FF', amber: '#FFB800', red: '#FF2A55', green: '#2BFF88', dim: '#5d7f95' };
+const lvl = (score) => (score >= 65 ? 'crit' : score >= 35 ? 'warn' : 'ok');
+const lvlColor = { ok: COL.cyan, warn: COL.amber, crit: COL.red, na: COL.dim };
+const fmt = (v, d = 0) => (v == null || !Number.isFinite(v) ? '—' : v.toFixed(d));
+
+const SOURCES = {
+  'hazards': { tag: 'NASA HRP · 5 Hazards', full: 'NASA Human Research Program — los 5 peligros del vuelo espacial humano: Radiación, Aislamiento/Confinamiento, Distancia a la Tierra, Campos de gravedad alterados y Ambientes cerrados hostiles.' },
+  'hrp-sans': { tag: 'NASA HRP · SANS', full: 'Riesgo de Síndrome Neuro-Ocular Asociado al Vuelo Espacial: desplazamiento cefálico de fluidos en 0g; el CO₂ ambiental elevado se estudia como factor contribuyente. Marcador: diámetro de la vaina del nervio óptico (ONSD).' },
+  'hrp-renal': { tag: 'NASA HRP · Renal Stone', full: 'Riesgo de cálculos renales: pérdida ósea ~1–1.5 %/mes en microgravedad → hipercalciuria. Contramedidas: ejercicio resistivo ARED, hidratación, citrato de potasio.' },
+  'hrp-immune': { tag: 'NASA HRP · Immune', full: 'Desregulación inmune y reactivación de virus latentes (VZV, EBV, CMV) asociadas a estrés y radiación.' },
+  'hrp-dcs': { tag: 'NASA HRP · DCS', full: 'Enfermedad por descompresión en EVA / despresurización. Mitigación: pre-respiración de O₂ para desnitrogenar tejidos.' },
+  'hrp-hypoxia': { tag: 'NASA HRP · Hypoxia', full: 'Riesgo por atmósfera de cabina inadecuada (ppO₂ bajo) — hipoxia hipobárica.' },
+  'hrp-bmed': { tag: 'NASA HRP · BMed', full: 'Riesgo de condiciones conductuales adversas por aislamiento y confinamiento. La HRV (RMSSD) se usa como marcador autonómico objetivo.' },
+  'hrp-sensorimotor': { tag: 'NASA HRP · Sensorimotor', full: 'Alteración sensoriomotora/vestibular en transiciones gravitatorias (0g → 0.16g → 0.38g → 1g).' },
+  'hrp-cv': { tag: 'NASA HRP · Cardiovascular', full: 'Riesgo de desacondicionamiento cardiovascular y arritmias.' },
+  'hrp-rad': { tag: 'NASA HRP · Radiation', full: 'Exposición a radiación espacial. Estándar NASA de dosis de carrera: 600 mSv.' },
+  'cipher': { tag: 'NASA CIPHER', full: 'Complement of Integrated Protocols for Human Exploration Research: mismo set de protocolos en misiones de distinta duración para extrapolar riesgos a misiones largas (Marte).' },
+  'csa-rad': { tag: 'CSA · Radi-N2', full: 'Dosimetría de neutrones de la Agencia Espacial Canadiense con detectores de burbujas (Radi-N2). Fracción de neutrones secundarios modelada en ~30 % (verificar contra la fuente oficial antes de la presentación).' },
+  'csa-vasc': { tag: 'CSA · Vascular Aging', full: 'Estudio CSA de envejecimiento vascular: rigidez arterial y resistencia a la insulina tras ~6 meses en la ISS, comparable a años de envejecimiento en Tierra.' },
+  'csa-dual': { tag: 'CSA · Tierra', full: 'Transferencia tecnológica: la misma telemetría sirve para telemedicina rural y monitoreo de adultos mayores aislados.' },
+};
+
+const TERMS = {
+  space: { subject: 'ASTRONAUTA', env: 'HÁBITAT · ECLSS', readiness: 'EVA & FLIGHT READINESS', go: 'GO · EVA', nogo: 'NO-GO · EVA', day: 'SOL', sync: 'EARTH-SYNC · DSN', surgeon: 'cirujano de vuelo', psi: 'Presión de cabina', co2: 'pCO₂ cabina', rad: 'Flujo solar + neutrones (base)', noise: 'Ruido acústico', twin: 'GEMELO DIGITAL · TRIPULANTE' },
+  earth: { subject: 'PACIENTE', env: 'ENTORNO DOMICILIARIO', readiness: 'ÍNDICE DE ESTABILIDAD CLÍNICA', go: 'ESTABLE', nogo: 'DERIVAR', day: 'DÍA', sync: 'SYNC RURAL · SATÉLITE / 2G', surgeon: 'médico remoto', psi: 'Presión barométrica (altitud)', co2: 'CO₂ interior (ventilación)', rad: 'Radiación ambiental', noise: 'Ruido ambiental', twin: 'GEMELO DIGITAL · PACIENTE' },
+};
+
+const LAYERS = [
+  { id: 'all', name: 'TODAS' }, { id: 'neuro', name: '1 · NEURO-OCULAR / VESTIBULAR' }, { id: 'cardio', name: '2 · CARDIO / PULMONAR' },
+  { id: 'msk', name: '3 · MÚSCULO-ESQ. / RENAL' }, { id: 'immune', name: '4 · INMUNE / DÉRMICO' }, { id: 'metab', name: '5 · METABÓLICO / ENDOCRINO' },
+];
+const SCAN_STAGES = [
+  { name: 'NEURO-VESTIBULAR', layer: 'neuro' }, { name: 'CARDIOVASCULAR · MAX30102', layer: 'cardio' },
+  { name: 'MÚSCULO-ESQUELÉTICO / RENAL', layer: 'msk' }, { name: 'RADIACIÓN / TRIAJE EVA', layer: 'immune' },
+];
+
+/* ================================================================ hooks */
+function useEngine() { return useSyncExternalStore(Engine.subscribe, () => Engine.snap); }
+
+/* ================================================================ átomos */
+function Icon({ name, size = 14, className = '', style }) {
+  const L = window.lucide; const names = Array.isArray(name) ? name : [name];
+  let node = null; for (const n of names) { node = L?.icons?.[n] || L?.[n]; if (node) break; }
+  let kids = node || [['circle', { cx: 12, cy: 12, r: 4 }]]; if (kids[0] === 'svg') kids = kids[2];
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className={className} style={style}>
+      {kids.map(([tag, attrs], i) => React.createElement(tag, { ...attrs, key: i }))}
+    </svg>
+  );
+}
+
+function Badge({ id }) {
+  const s = SOURCES[id]; if (!s) return null;
+  return (
+    <span className="badge relative inline-block">
+      <span className="mono text-[9px] px-1.5 py-[1px] rounded-sm border border-[#00F0FF]/30 text-[#7fdcff] bg-[#00F0FF]/5 cursor-help whitespace-nowrap">{s.tag}</span>
+      <span className="badge-tip absolute z-50 left-0 top-5 w-64 p-2 text-[11px] leading-snug text-slate-200 bg-[#07101f] border border-[#00F0FF]/40 rounded shadow-xl">{s.full}</span>
+    </span>
+  );
+}
+
+function Panel({ title, icon, right, children, className = '' }) {
+  return (
+    <section className={`panel p-2.5 ${className}`}>
+      {title && (
+        <header className="flex items-center justify-between mb-2 gap-2">
+          <h2 className="ptitle flex items-center gap-1.5">{icon && <Icon name={icon} size={12} />}{title}</h2>
+          <div className="flex items-center gap-1 flex-wrap justify-end">{right}</div>
+        </header>
+      )}
+      {children}
+    </section>
+  );
+}
+
+function Spark({ data = [], color }) {
+  const v = data.filter(Number.isFinite);
+  if (v.length < 2) return <svg className="w-full h-5" />;
+  const mn = Math.min(...v), mx = Math.max(...v), r = mx - mn || 1;
+  const pts = data.map((d, i) => (Number.isFinite(d) ? `${(i / (data.length - 1)) * 100},${19 - ((d - mn) / r) * 17}` : null)).filter(Boolean).join(' ');
+  return (
+    <svg viewBox="0 0 100 20" preserveAspectRatio="none" className="w-full h-5">
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.3" vectorEffect="non-scaling-stroke" opacity=".85" />
+    </svg>
+  );
+}
+
+function Slider({ label, value, min, max, step, unit, onChange, status = 'ok', note }) {
+  return (
+    <div className="mb-2.5">
+      <div className="flex justify-between items-baseline text-[11px]">
+        <span className="text-slate-300">{label}</span>
+        <span className="mono font-semibold" style={{ color: lvlColor[status] }}>{typeof value === 'number' ? value.toFixed(step < 1 ? (step < 0.1 ? 2 : 1) : 0) : value} <span className="text-slate-500 font-normal">{unit}</span></span>
+      </div>
+      <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(parseFloat(e.target.value))} />
+      {note && <div className="text-[10px] mono mt-0.5" style={{ color: lvlColor[status] }}>{note}</div>}
+    </div>
+  );
+}
+
+/* ======================================================== OSCILOSCOPIO PPG */
+// Lee directamente los Ring buffers del motor en requestAnimationFrame: cero re-renders de React.
+function PPGScope() {
+  const cv = useRef(null);
+  useEffect(() => {
+    let raf; const sc = { ir: [-1, 1], red: [-1, 1], imu: [-0.3, 0.3] };
+    const lane = (ctx, ring, N, y0, hh, w, color, s, glow, minR = 0) => {
+      if (ring.len < 2) return;
+      let mn = Infinity, mx = -Infinity;
+      for (let k = 0; k < N; k++) { const v = ring.last(k); if (v < mn) mn = v; if (v > mx) mx = v; }
+      if (mx - mn < minR) { const c0 = (mx + mn) / 2; mn = c0 - minR / 2; mx = c0 + minR / 2; } if (mx - mn < 1e-6) { mn -= 1; mx += 1; }
+      const pad = (mx - mn) * 0.12; s[0] += (mn - pad - s[0]) * 0.08; s[1] += (mx + pad - s[1]) * 0.08;
+      const r = s[1] - s[0] || 1;
+      ctx.beginPath();
+      for (let k = N - 1; k >= 0; k--) {
+        const x = w - (k / (N - 1)) * w, y = y0 + hh - ((ring.last(k) - s[0]) / r) * hh;
+        k === N - 1 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.strokeStyle = color; ctx.lineWidth = 1.6; ctx.shadowColor = color; ctx.shadowBlur = glow; ctx.stroke(); ctx.shadowBlur = 0;
+    };
+    const draw = () => {
+      raf = requestAnimationFrame(draw);
+      const c = cv.current; if (!c) return;
+      const dpr = window.devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+      if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
+      const ctx = c.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
+      ctx.strokeStyle = 'rgba(0,240,255,0.07)'; ctx.lineWidth = 1;
+      for (let x = 0; x < w; x += w / 12) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
+      for (let y = 0; y < h; y += h / 8) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
+      const p = Engine.ppg, im = Engine.imu, N = Math.min(p.scopeIr.len, p.fs * 6);
+      ctx.font = '9px ui-monospace, Menlo, monospace';
+      ctx.fillStyle = 'rgba(0,240,255,.7)'; ctx.fillText('IR 880nm · PPG', 6, 11);
+      ctx.fillStyle = 'rgba(255,42,85,.8)'; ctx.fillText('RED 660nm', 6, h * 0.55 + 11);
+      ctx.fillStyle = 'rgba(255,184,0,.8)'; ctx.fillText('MPU6050 · ACC eje dominante', 6, h * 0.8 + 11);
+      if (N > 2) {
+        lane(ctx, p.scopeIr, N, 4, h * 0.5, w, '#00F0FF', sc.ir, 8);
+        lane(ctx, p.scopeRed, N, h * 0.55, h * 0.23, w, '#FF2A55', sc.red, 4);
+        // marcadores de latido detectado (picos sistólicos)
+        ctx.fillStyle = '#2BFF88';
+        for (const mk of p.beatMarks) { const k = p.n - 1 - mk; if (k < N) { const x = w - (k / (N - 1)) * w; ctx.fillRect(x - 0.5, 2, 1, 6); } }
+      }
+      const Ni = Math.min(im.scope.len, im.fs * 6); if (Ni > 2) lane(ctx, im.scope, Ni, h * 0.8, h * 0.18, w, '#FFB800', sc.imu, 3, 0.25);
+      if (!p.isFinger()) {
+        ctx.fillStyle = 'rgba(5,8,17,.72)'; ctx.fillRect(0, 0, w, h * 0.78);
+        ctx.fillStyle = (Date.now() / 500) % 2 < 1 ? '#FFB800' : '#7a5800'; ctx.font = 'bold 12px ui-monospace, Menlo, monospace'; ctx.textAlign = 'center';
+        ctx.fillText('[ SEÑAL ÓPTICA PERDIDA ]', w / 2, h * 0.33);
+        ctx.font = '10px ui-monospace, Menlo, monospace'; ctx.fillStyle = '#cfe9ff';
+        ctx.fillText('Recolocar sensor en la yema del dedo · presión suave · sin luz ambiental', w / 2, h * 0.33 + 16); ctx.textAlign = 'left';
+      }
+    };
+    draw(); return () => cancelAnimationFrame(raf);
+  }, []);
+  return <canvas ref={cv} className="w-full h-full block" />;
+}
+
+/* ================================================================= HEADER */
+function Header({ s, ui, set, terms, onScenario, dsnState }) {
+  const [busy, setBusy] = useState(false); const [cfgOpen, setCfgOpen] = useState(false); const [, force] = useState(0);
+  const serialOk = Serial.supported();
+  const connect = async () => {
+    setBusy(true);
+    try { await Serial.connect(); } catch (e) { if (e.name !== 'NotFoundError') Engine.event(`No se pudo abrir el puerto: ${e.message}`, 'warn'); }
+    setBusy(false);
+  };
+  const st = Engine.serialState, live = Engine.source === 'serial';
+  const srcLabel = s.source === 'failover' ? 'FAILOVER · SIMULADOR' : live ? 'BRAZALETE ESP32-C3' : 'SIMULADOR CLÍNICO EN VIVO';
+  return (
+    <header className="panel px-3 py-2 flex flex-wrap items-center gap-x-4 gap-y-2">
+      <div className="flex items-center gap-2 mr-2">
+        <div className="w-8 h-8 rounded border border-[#00F0FF]/60 grid place-items-center text-[#00F0FF]"><Icon name="Rocket" size={16} /></div>
+        <div>
+          <div className="mono font-bold tracking-[.18em] text-[13px] text-white">A.R.E.S. <span className="text-[#00F0FF]">BIO-TWIN OS</span></div>
+          <div className="mono text-[9px] text-slate-400 tracking-wider">AUTONOMOUS RISK EVALUATION & SPACE-MEDICINE · MIB · NASA SPACE APPS 2026</div>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        {!live ? (
+          <button className="btn flex items-center gap-1.5" onClick={connect} disabled={!serialOk || busy}
+            title={serialOk ? 'Web Serial API · 115200 baud · NDJSON' : 'Requiere Chrome/Edge de escritorio en https:// o localhost'}>
+            <Icon name="Usb" size={13} /> {busy ? 'ABRIENDO…' : '[ CONECTAR BRAZALETE ESP32-C3 ]'}
+          </button>
+        ) : (
+          <button className="btn flex items-center gap-1.5" onClick={() => Serial.disconnect().then(() => force((x) => x + 1))}><Icon name="Unplug" size={13} /> DESCONECTAR</button>
+        )}
+        <div className="mono text-[10px] leading-tight">
+          <div className={s.source === 'failover' ? 'text-[#FFB800] blink' : live ? 'text-[#2BFF88]' : 'text-[#00F0FF]'}>● {srcLabel}</div>
+          <div className="text-slate-500">{live ? `${st.toUpperCase()} · ` : ''}{fmt(s.sps, 0)} Hz · {fmt(s.pps, 1)} pkt/s</div>
+        </div>
+        <div className={`mono text-[10px] px-2 py-1 rounded border ${s.finger ? 'border-[#2BFF88]/50 text-[#2BFF88]' : 'border-[#FFB800]/60 text-[#FFB800] blink'}`}>
+          <Icon name="Fingerprint" size={11} className="inline -mt-0.5 mr-1" />{s.finger ? 'CONTACTO ÓPTICO OK' : 'STANDBY ÓPTICO / SIN CONTACTO'}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-1.5">
+        <span className="ptitle">ESCENARIO</span>
+        <select value={ui.scenario} onChange={(e) => onScenario(e.target.value)}>
+          {SCENARIOS.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+        </select>
+      </div>
+
+      <div className="flex items-center gap-1.5">
+        <span className="ptitle">CIPHER</span>
+        <div className="seg">{[[14, '14 SOLS'], [180, 'ISS 180'], [850, 'MARTE 850']].map(([v, l]) => (
+          <button key={v} className={ui.sols === v ? 'on' : ''} onClick={() => set({ sols: v, sol: Math.min(ui.sol, v) })}>{l}</button>))}</div>
+        <Badge id="cipher" />
+      </div>
+
+      <div className="flex items-center gap-1.5">
+        <span className="ptitle">g</span>
+        <div className="seg">{[0, 0.16, 0.38, 1].map((v) => (
+          <button key={v} className={ui.g === v ? 'on' : ''} onClick={() => set({ g: v, gChangedAt: Date.now() })}>{v}g</button>))}</div>
+      </div>
+
+      <div className="flex items-center gap-1.5">
+        <div className="seg">
+          <button className={ui.mode === 'space' ? 'on' : ''} onClick={() => set({ mode: 'space' })}>DEEP SPACE ASTRONAUT</button>
+          <button className={ui.mode === 'earth' ? 'on' : ''} onClick={() => set({ mode: 'earth' })}>EARTH RURAL TELEMEDICINE</button>
+        </div>
+        <Badge id="csa-dual" />
+      </div>
+
+      <div className="flex items-center gap-2 ml-auto mono text-[10px]">
+        <Icon name="Satellite" size={14} className={dsnState.open ? 'text-[#2BFF88]' : 'text-[#FFB800]'} />
+        <div className="leading-tight">
+          <div className="text-slate-300">{terms.sync} · {dsnState.latency}</div>
+          <div className={dsnState.open ? 'text-[#2BFF88]' : 'text-[#FFB800]'}>
+            {dsnState.mars ? (dsnState.open ? `VENTANA ABIERTA · cierra en ${dsnState.next}s` : `EN COLA ${DSN.queue.length} pkt · ventana en ${dsnState.next}s`) : 'ENLACE CONTINUO'}
+            <span className="text-slate-500"> · enviados {DSN.sent.length}</span>
+          </div>
+        </div>
+        <div className="relative">
+          <button className="btn px-1.5" onClick={() => setCfgOpen((o) => !o)} title="Calibración"><Icon name="Settings" size={13} /></button>
+          {cfgOpen && (
+            <div className="absolute right-0 top-8 z-50 w-64 panel p-3 bg-[#07101f] text-[11px] space-y-2">
+              <div className="ptitle">CALIBRACIÓN DEL SENSOR</div>
+              <label className="flex justify-between items-center">Umbral contacto IR
+                <input type="number" className="w-24" value={Engine.cfg.fingerThr} onChange={(e) => { Engine.cfg.fingerThr = +e.target.value; force((x) => x + 1); }} /></label>
+              <label className="flex justify-between items-center">Offset T die → piel (°C)
+                <input type="number" step="0.1" className="w-24" value={Engine.cfg.tempOffset} onChange={(e) => { Engine.cfg.tempOffset = +e.target.value; force((x) => x + 1); }} /></label>
+              <label className="flex justify-between items-center">Failover automático a simulador
+                <input type="checkbox" checked={Engine.cfg.failover} onChange={(e) => { Engine.cfg.failover = e.target.checked; force((x) => x + 1); }} /></label>
+              <div className="text-slate-500 text-[10px]">Errores de parseo JSON: {Engine.stats.parseErr} · líneas: {Engine.stats.lines}<br />Último log del ESP32: {Engine.stats.lastLog || '—'}</div>
+            </div>
+          )}
+        </div>
+      </div>
+    </header>
+  );
+}
+
+/* ============================================================ COLUMNA IZQ */
+function HabitatPanel({ hab, setHab, ui, set, a, terms, s }) {
+  const ppO2 = ppO2Of(hab);
+  const zone = ZONES[ui.zoneUsed] || ZONES.module;
+  const co2s = hab.co2 > 5 ? 'crit' : hab.co2 > 3.5 ? 'warn' : 'ok';
+  const psis = ppO2 < 80 ? 'crit' : ppO2 < 110 ? 'warn' : 'ok';
+  const live = Engine.source === 'serial' && s.source !== 'failover';
+  return (
+    <div className="flex flex-col gap-2.5">
+      <Panel title={terms.env} icon="Gauge" right={<><Badge id="hazards" /></>}>
+        <div className="text-[10px] text-slate-400 mb-2">Sliders en vivo: el simulador fisiológico responde y el motor de riesgo se re-pondera.</div>
+        <Slider label={terms.psi} value={hab.psi} min={4.3} max={14.7} step={0.1} unit="psi" status={psis}
+          note={`ppO₂ inspirado ${ppO2.toFixed(0)} mmHg · FiO₂ ${(hab.fO2 * 100).toFixed(0)} %`} onChange={(v) => setHab({ psi: v })} />
+        <Slider label={terms.co2} value={hab.co2} min={0.5} max={10} step={0.1} unit="mmHg" status={co2s}
+          note={hab.co2 > 5 ? '⚠ UMBRAL SANS > 5 mmHg' : 'Nominal ≈ 2 mmHg'} onChange={(v) => setHab({ co2: v })} />
+        <Slider label={terms.noise} value={hab.noise} min={40} max={85} step={1} unit="dB" status={hab.noise > 70 ? 'crit' : hab.noise > 62 ? 'warn' : 'ok'} onChange={(v) => setHab({ noise: v })} />
+        <Slider label="Glucosa metabólica (CSA)" value={hab.glucose} min={70} max={180} step={1} unit="mg/dL" status={hab.glucose > 125 ? 'crit' : hab.glucose > 100 ? 'warn' : 'ok'} onChange={(v) => setHab({ glucose: v })} />
+        <Slider label="Hidratación diaria" value={hab.hyd} min={0.5} max={4} step={0.1} unit="L" status={hab.hyd < 1.8 ? 'crit' : hab.hyd < 2.5 ? 'warn' : 'ok'} onChange={(v) => setHab({ hyd: v })} />
+        <Slider label={`${terms.day} actual de misión`} value={ui.sol} min={1} max={ui.sols} step={1} unit={`/ ${ui.sols}`} onChange={(v) => set({ sol: v })} />
+      </Panel>
+
+      <Panel title="RADIACIÓN · CSA RADI-N2" icon="Radiation" right={<><Badge id="hrp-rad" /><Badge id="csa-rad" /></>}>
+        <Slider label={terms.rad} value={hab.rad} min={0.1} max={10} step={0.1} unit="mSv/día" status={hab.rad > 3 ? 'crit' : hab.rad > 1 ? 'warn' : 'ok'} onChange={(v) => setHab({ rad: v })} />
+        <div className="grid grid-cols-3 gap-1.5 mono text-center text-[10px]">
+          <div className="border border-white/10 rounded p-1"><div className="text-slate-500">EFECTIVA</div><div className="text-[15px]" style={{ color: lvlColor[a.effRad > 5 ? 'crit' : a.effRad > 1.5 ? 'warn' : 'ok'] }}>{a.effRad.toFixed(2)}</div><div className="text-slate-500">mSv/día</div></div>
+          <div className="border border-white/10 rounded p-1"><div className="text-slate-500">NEUTRONES</div><div className="text-[15px] text-[#FFB800]">{(a.effRad * 0.3).toFixed(2)}</div><div className="text-slate-500">~30 %</div></div>
+          <div className="border border-white/10 rounded p-1"><div className="text-slate-500">PROYECCIÓN</div><div className="text-[15px]" style={{ color: lvlColor[a.effRad * ui.sols > 600 ? 'crit' : a.effRad * ui.sols > 300 ? 'warn' : 'ok'] }}>{(a.effRad * ui.sols).toFixed(0)}</div><div className="text-slate-500">/ 600 mSv</div></div>
+        </div>
+      </Panel>
+
+      <Panel title="RADAR INDOOR · WI-FI RSSI" icon="Radio" right={<span className="mono text-[10px] text-slate-400">{live ? 'RSSI real' : 'simulado'}</span>}>
+        <div className="space-y-1">
+          {['shelter', 'module', 'dome'].map((id) => {
+            const z = ZONES[id], on = ui.zoneUsed === id;
+            return (
+              <button key={id} disabled={live} onClick={() => set({ zone: id })}
+                className={`w-full text-left flex items-center justify-between px-2 py-1.5 rounded border text-[11px] ${on ? 'border-[#00F0FF] bg-[#00F0FF]/10 text-white' : 'border-white/10 text-slate-400 hover:border-[#00F0FF]/40'}`}>
+                <span className="flex items-center gap-1.5">{on && <span className="w-1.5 h-1.5 rounded-full bg-[#2BFF88] blink" />}{z.name}</span>
+                <span className="mono" style={{ color: z.mult > 1 ? COL.red : z.mult < 1 ? COL.green : COL.cyan }}>×{z.mult}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="mono text-[10px] text-slate-400 mt-1.5">RSSI mediana(9): <span className="text-[#00F0FF]">{fmt(s.rssi, 0)} dBm</span> · histéresis 3 dB · zona: {zone.short}</div>
+      </Panel>
+    </div>
+  );
+}
+
+/* ======================================================= GEMELO ANATÓMICO */
+const BODY = 'M150 20 C176 20 186 40 186 62 C186 86 174 100 162 104 L162 118 C182 122 200 126 208 134 C214 152 214 172 212 196 L222 300 C224 314 222 322 216 324 L206 306 L200 214 L196 232 C194 262 194 290 198 318 C200 330 190 338 178 340 L176 470 L182 584 C184 596 166 598 160 590 L156 470 L152 350 L148 350 L144 470 L140 590 C134 598 116 596 118 584 L124 470 L122 340 C110 338 100 330 102 318 C106 290 106 262 104 232 L100 214 L94 306 L84 324 C78 322 76 314 78 300 L88 196 C86 172 86 152 92 134 C100 126 118 122 138 118 L138 104 C126 100 114 86 114 62 C114 40 124 20 150 20 Z';
+const ORGANS = [
+  { id: 'brain', layer: 'neuro', risks: ['sans', 'vestib', 'behav'], el: <ellipse cx="150" cy="50" rx="26" ry="21" /> },
+  { id: 'eyes', layer: 'neuro', risks: ['sans'], el: <g><circle cx="138" cy="70" r="5" /><circle cx="162" cy="70" r="5" /><path d="M138 70 L148 58 M162 70 L152 58" fill="none" /></g> },
+  { id: 'vestib', layer: 'neuro', risks: ['vestib'], el: <g><circle cx="116" cy="66" r="4" /><circle cx="184" cy="66" r="4" /></g> },
+  { id: 'thyroid', layer: 'metab', risks: ['behav'], el: <ellipse cx="150" cy="113" rx="9" ry="4.5" /> },
+  { id: 'lymph', layer: 'immune', risks: ['viral'], el: <g><circle cx="140" cy="108" r="3" /><circle cx="160" cy="108" r="3" /><circle cx="106" cy="148" r="3" /><circle cx="194" cy="148" r="3" /><circle cx="128" cy="330" r="3" /><circle cx="172" cy="330" r="3" /></g> },
+  { id: 'lungs', layer: 'cardio', risks: ['hypoxia'], el: <g><ellipse cx="126" cy="180" rx="19" ry="36" /><ellipse cx="174" cy="180" rx="19" ry="36" /></g> },
+  { id: 'carotid', layer: 'cardio', risks: ['vasc'], el: <path d="M147 190 Q140 140 141 96 M156 190 Q160 140 159 96" fill="none" /> },
+  { id: 'heart', layer: 'cardio', risks: ['hypoxia', 'vasc'], heart: true, el: <path d="M156 214 C138 200 136 186 146 182 C152 180 156 186 156 188 C156 186 160 180 166 182 C176 186 174 200 156 214 Z" /> },
+  { id: 'liver', layer: 'metab', risks: ['vasc'], el: <path d="M110 232 Q130 220 156 228 Q150 250 120 250 Q108 246 110 232 Z" /> },
+  { id: 'pancreas', layer: 'metab', risks: ['vasc'], el: <ellipse cx="166" cy="254" rx="18" ry="5" /> },
+  { id: 'kidneys', layer: 'msk', risks: ['renal'], el: <g><ellipse cx="128" cy="276" rx="9" ry="14" /><ellipse cx="172" cy="276" rx="9" ry="14" /></g> },
+  { id: 'spine', layer: 'msk', risks: ['renal', 'dcs'], el: <path d="M150 124 L150 322" fill="none" strokeDasharray="4 3" /> },
+  { id: 'femur', layer: 'msk', risks: ['renal', 'dcs'], el: <path d="M134 344 L130 462 M166 344 L170 462 M130 476 L128 580 M170 476 L172 580" fill="none" strokeWidth="4" /> },
+];
+const CASCADES = [
+  { risk: 'renal', label: 'Ca²⁺ → riñón', color: COL.amber, paths: ['M130 452 Q118 360 128 290', 'M170 452 Q182 360 172 290'] },
+  { risk: 'sans', label: 'Fluido cefálico ↑', color: COL.cyan, paths: ['M150 320 Q146 220 146 130 Q146 92 138 74', 'M150 320 Q154 220 154 130 Q154 92 162 74'] },
+  { risk: 'hypoxia', label: '↓O₂ → cerebro', color: COL.red, paths: ['M126 186 Q140 200 156 198 Q150 140 150 60', 'M174 186 Q160 200 156 198'] },
+  { risk: 'rad', label: 'Neutrones secundarios', color: COL.red, paths: ['M40 0 L120 160', 'M260 10 L180 240', 'M90 0 L150 300', 'M220 0 L160 420', 'M10 120 L130 360'] },
+  { risk: 'vasc', label: 'Rigidez carotídea', color: COL.amber, paths: ['M156 196 Q160 140 159 98', 'M147 196 Q140 140 141 98'] },
+];
+
+function AnatomyTwin({ a, s, layer, setLayer, scan, terms }) {
+  const rmap = Object.fromEntries(a.risks.map((r) => [r.id, r.score]));
+  const scanStage = scan ? Math.min(3, Math.floor((Date.now() - scan.start) / 7500)) : -1;
+  const activeLayer = scanStage >= 0 ? SCAN_STAGES[scanStage].layer : layer;
+  const hb = s.bpm ? 60 / s.bpm : 0.9;
+  return (
+    <div className="relative w-full h-full grid-bg rounded overflow-hidden">
+      <svg viewBox="0 0 300 610" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <filter id="glow"><feGaussianBlur stdDeviation="2.4" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
+          <linearGradient id="bodyfill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#00F0FF" stopOpacity=".09" /><stop offset="1" stopColor="#00F0FF" stopOpacity=".02" /></linearGradient>
+        </defs>
+        <path d={BODY} fill="url(#bodyfill)" stroke={activeLayer === 'immune' ? lvlColor[lvl(Math.max(rmap.viral, rmap.rad))] : COL.cyan}
+          strokeOpacity={activeLayer === 'all' || activeLayer === 'immune' ? 0.8 : 0.3} strokeWidth="1.3" filter="url(#glow)" />
+        {ORGANS.map((o) => {
+          const sc = Math.max(...o.risks.map((r) => rmap[r] ?? 0)), L = lvl(sc), c = lvlColor[L];
+          const vis = activeLayer === 'all' || activeLayer === o.layer;
+          return (
+            <g key={o.id} fill={c} fillOpacity={vis ? 0.28 : 0.04} stroke={c} strokeOpacity={vis ? 0.95 : 0.12} strokeWidth="1.4"
+              className={`${vis && L === 'crit' ? 'organ-crit' : ''} ${o.heart ? 'heartbeat' : ''}`} style={o.heart ? { '--hb': `${hb}s` } : undefined}
+              filter={vis ? 'url(#glow)' : undefined}>{o.el}</g>
+          );
+        })}
+        {/* brazalete MAX30102 + MPU6050 en muñeca izquierda */}
+        <g><rect x="76" y="296" width="20" height="10" rx="2" fill={s.finger ? COL.green : COL.amber} fillOpacity=".7" className={s.finger ? '' : 'blink'} />
+          <text x="44" y="292" fontSize="7" fill="#9fd" className="mono">MAX30102·MPU6050</text></g>
+        {/* cascadas fisiológicas animadas */}
+        {CASCADES.filter((c) => (rmap[c.risk] ?? 0) >= 40 && (activeLayer === 'all' || ORGANS.some((o) => o.layer === activeLayer && o.risks.includes(c.risk)) || (c.risk === 'rad' && activeLayer === 'immune'))).map((c) => (
+          <g key={c.risk}>
+            {c.paths.map((p, i) => (
+              <g key={i}>
+                <path d={p} fill="none" stroke={c.color} strokeOpacity=".22" strokeDasharray="3 4" />
+                {[0, 1, 2, 3].map((j) => (
+                  <circle key={j} r={c.risk === 'rad' ? 1.6 : 2.4} fill={c.color} filter="url(#glow)">
+                    <animateMotion dur={c.risk === 'rad' ? '1.4s' : '2.6s'} begin={`${j * (c.risk === 'rad' ? 0.35 : 0.65) + i * 0.2}s`} repeatCount="indefinite" path={p} />
+                  </circle>
+                ))}
+              </g>
+            ))}
+          </g>
+        ))}
+      </svg>
+      {/* leyenda de cascadas activas */}
+      <div className="absolute left-2 top-2 space-y-1">
+        {CASCADES.filter((c) => (rmap[c.risk] ?? 0) >= 40).map((c) => (
+          <div key={c.risk} className="mono text-[9.5px] px-1.5 py-0.5 rounded bg-black/50 border" style={{ borderColor: c.color, color: c.color }}>▶ {c.label}</div>
+        ))}
+      </div>
+      <div className="absolute right-2 top-2 mono text-[9.5px] text-right text-slate-400 leading-tight">
+        <div>{terms.twin}</div><div>CAPA: <span className="text-[#00F0FF]">{LAYERS.find((l) => l.id === activeLayer)?.name}</span></div>
+      </div>
+      {scan && (<>
+        <div className="scanglow" key={`g${scan.start}`} /><div className="scanline" key={`l${scan.start}`} />
+        <div className="absolute bottom-2 left-2 right-2 panel bg-black/70 p-2">
+          <div className="flex justify-between mono text-[10px]"><span className="text-[#00F0FF]">ETAPA {scanStage + 1}/4 · {SCAN_STAGES[scanStage].name}</span><span className="text-white">{Math.max(0, 30 - (Date.now() - scan.start) / 1000).toFixed(1)} s</span></div>
+          <div className="h-1 bg-white/10 mt-1 rounded"><div className="h-1 bg-[#00F0FF] rounded" style={{ width: `${clamp((Date.now() - scan.start) / 300, 0, 100)}%` }} /></div>
+        </div>
+      </>)}
+    </div>
+  );
+}
+
+/* ================================================= REPORTE DEL BIO-ESCANEO */
+function buildReport(samples, ctx) {
+  const by = (st) => samples.filter((x) => x.stage === st);
+  const avg = (arr, k) => { const v = arr.map((x) => x.s[k]).filter(Number.isFinite); return v.length ? mean(v) : null; };
+  const all = samples, last = samples[samples.length - 1];
+  const risk = (id) => last?.a.risks.find((r) => r.id === id)?.score ?? 0;
+  const st = (cond, warn) => (cond ? 'crit' : warn ? 'warn' : 'ok');
+  const s0 = by(0), s1 = by(1), s2 = by(2);
+  const trem = avg(s0, 'tremor'), bpm = avg(s1, 'bpm'), spo2 = avg(s1, 'spo2'), rmssd = avg(s1, 'rmssd'), pi = avg(s1, 'pi'), si = avg(s1, 'si'), sqi = avg(s1, 'sqi'), resp = avg(all, 'resp');
+  const fingerPct = all.length ? all.filter((x) => x.s.finger).length / all.length : 0;
+  return {
+    ts: new Date().toISOString(), mission: { sols: ctx.sols, sol: ctx.sol, g: ctx.g, zone: ctx.zone, mode: ctx.mode }, opticalCoverage: fingerPct,
+    stages: [
+      { name: SCAN_STAGES[0].name, findings: [
+        { k: 'Micro-temblor', v: `${fmt(trem, 3)} rad/s`, st: st(trem > 0.1, trem > 0.04) },
+        { k: 'Riesgo SANS', v: `${risk('sans')}/100`, st: lvl(risk('sans')) },
+        { k: 'Riesgo vestibular', v: `${risk('vestib')}/100`, st: lvl(risk('vestib')) }] },
+      { name: SCAN_STAGES[1].name, findings: [
+        { k: 'FC', v: `${fmt(bpm)} lpm`, st: st(bpm > 130, bpm > 100 || bpm < 50) },
+        { k: 'SpO₂', v: `${fmt(spo2, 1)} %`, st: st(spo2 < 90, spo2 < 95) },
+        { k: 'HRV RMSSD', v: `${fmt(rmssd)} ms`, st: st(rmssd < 20, rmssd < 35) },
+        { k: 'Frec. respiratoria', v: `${fmt(resp)} rpm`, st: st(resp > 28, resp > 20) },
+        { k: 'Índice de perfusión', v: `${fmt(pi, 2)} %`, st: st(pi < 0.5, pi < 1.5) },
+        { k: 'Stiffness Index', v: `${fmt(si, 1)} m/s`, st: st(si > 10, si > 8.5) },
+        { k: 'Calidad de señal (SQI)', v: `${fmt(sqi * 100)} %`, st: st(sqi < 0.3, sqi < 0.5) }] },
+      { name: SCAN_STAGES[2].name, findings: [
+        { k: 'Reps ARED hoy', v: `${ctx.reps}/60`, st: st(ctx.reps < 20, ctx.reps < 60) },
+        { k: 'Cascada hueso→riñón', v: `${risk('renal')}/100`, st: lvl(risk('renal')) },
+        { k: 'Riesgo DCS', v: `${risk('dcs')}/100`, st: lvl(risk('dcs')) },
+        { k: 'Actividad (MPU6050)', v: `${fmt(avg(s2, 'activity'), 3)} g`, st: 'ok' }] },
+      { name: SCAN_STAGES[3].name, findings: [
+        { k: 'Dosis efectiva', v: `${fmt(last?.a.effRad, 2)} mSv/día`, st: st(last?.a.effRad > 5, last?.a.effRad > 1.5) },
+        { k: 'Ubicación', v: (ZONES[ctx.zone] || ZONES.module).short, st: ctx.zone === 'dome' ? 'warn' : 'ok' },
+        { k: 'Readiness', v: `${last?.a.readiness ?? '—'} / 100`, st: last?.a.go ? 'ok' : 'crit' },
+        { k: 'Bloqueos', v: last?.a.blockers.length ? last.a.blockers.join(' · ') : 'Ninguno', st: last?.a.blockers.length ? 'crit' : 'ok' }] },
+    ],
+    readiness: last?.a.readiness, go: last?.a.go, topRisks: last?.a.risks.slice(0, 3).map((r) => ({ id: r.id, name: r.name, score: r.score, factors: r.factors })),
+  };
+}
+
+function ReportModal({ rep, onClose, terms }) {
+  const exportJson = () => {
+    const blob = new Blob([JSON.stringify(rep, null, 2)], { type: 'application/json' });
+    const u = URL.createObjectURL(blob); const el = document.createElement('a'); el.href = u; el.download = `ARES_bioscan_${rep.ts.replace(/[:.]/g, '-')}.json`; el.click(); URL.revokeObjectURL(u);
+  };
+  return (
+    <div className="fixed inset-0 z-[100] bg-black/75 grid place-items-center p-4" onClick={onClose}>
+      <div className="panel bg-[#060c18] w-full max-w-3xl max-h-[88vh] overflow-auto p-4" onClick={(e) => e.stopPropagation()}>
+        <div className="flex justify-between items-start mb-3">
+          <div>
+            <div className="ptitle">REPORTE DIAGNÓSTICO · BIO-ESCANEO 30 s</div>
+            <div className="mono text-[10px] text-slate-400">{rep.ts} · {terms.day} {rep.mission.sol}/{rep.mission.sols} · {rep.mission.g}g · cobertura óptica {(rep.opticalCoverage * 100).toFixed(0)} %</div>
+          </div>
+          <div className={`mono text-lg font-bold px-3 py-1 rounded border ${rep.go ? 'text-[#2BFF88] border-[#2BFF88]' : 'text-[#FF2A55] border-[#FF2A55] pulse-red'}`}>{rep.go ? terms.go : terms.nogo} · {rep.readiness}</div>
+        </div>
+        {rep.opticalCoverage < 0.8 && <div className="mono text-[11px] text-[#FFB800] mb-2">⚠ Contacto óptico intermitente durante el escaneo: métricas cardiovasculares con baja confianza.</div>}
+        <div className="grid md:grid-cols-2 gap-2">
+          {rep.stages.map((st, i) => (
+            <div key={i} className="border border-white/10 rounded p-2">
+              <div className="mono text-[10.5px] text-[#00F0FF] mb-1">ETAPA {i + 1} · {st.name}</div>
+              {st.findings.map((f, j) => (
+                <div key={j} className="flex justify-between text-[11px] py-0.5 border-b border-white/5 gap-2">
+                  <span className="text-slate-400">{f.k}</span><span className="mono text-right" style={{ color: lvlColor[f.st] }}>{f.v}</span>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+        <div className="mt-2 border border-white/10 rounded p-2">
+          <div className="mono text-[10.5px] text-[#00F0FF] mb-1">RIESGOS DOMINANTES</div>
+          {rep.topRisks.map((r) => <div key={r.id} className="text-[11px]"><span className="mono" style={{ color: lvlColor[lvl(r.score)] }}>{r.score}</span> {r.name} — <span className="text-slate-400">{r.factors.join(' · ')}</span></div>)}
+        </div>
+        <div className="flex gap-2 mt-3 justify-end">
+          <button className="btn flex items-center gap-1" onClick={exportJson}><Icon name="Download" size={12} /> EXPORTAR JSON</button>
+          <button className="btn flex items-center gap-1" onClick={() => { DSN.enqueue('bioscan', rep, rep.go ? 'normal' : 'high'); Engine.event(`Reporte de bio-escaneo encolado a ${terms.sync}`, 'ok'); onClose(); }}><Icon name="Send" size={12} /> ENCOLAR A DSN</button>
+          <button className="btn" onClick={onClose}>CERRAR</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ================================================ COLUMNA DERECHA: MÉTRICAS */
+const METRICS = [
+  { k: 'bpm', label: 'FRECUENCIA CARDÍACA', unit: 'lpm', d: 0, icon: 'HeartPulse', range: '50–100', st: (v) => (v > 130 || v < 40 ? 'crit' : v > 100 || v < 50 ? 'warn' : 'ok'), src: 'hrp-cv' },
+  { k: 'spo2', label: 'SpO₂ · RATIO OF RATIOS', unit: '%', d: 1, icon: 'Droplets', range: '≥ 95', st: (v) => (v < 90 ? 'crit' : v < 95 ? 'warn' : 'ok'), src: 'hrp-hypoxia' },
+  { k: 'rmssd', label: 'HRV · RMSSD', unit: 'ms', d: 0, icon: 'Activity', range: '> 35', st: (v) => (v < 20 ? 'crit' : v < 35 ? 'warn' : 'ok'), src: 'hrp-bmed' },
+  { k: 'resp', label: 'FREC. RESPIRATORIA', unit: 'rpm', d: 0, icon: 'Wind', range: '10–20', st: (v) => (v > 28 || v < 7 ? 'crit' : v > 20 || v < 10 ? 'warn' : 'ok'), src: 'hrp-hypoxia' },
+  { k: 'si', label: 'RIGIDEZ ARTERIAL · SI', unit: 'm/s', d: 1, icon: 'Waves', range: '5–8.5', st: (v) => (v > 10 ? 'crit' : v > 8.5 ? 'warn' : 'ok'), src: 'csa-vasc' },
+  { k: 'sys', label: 'PA PROXY (EXPERIMENTAL)', unit: 'mmHg', d: 0, icon: 'Gauge', range: 'requiere calib.', st: (v) => (v > 150 ? 'crit' : v > 135 ? 'warn' : 'ok'), src: 'csa-vasc', show: (s) => (s.sys ? `${Math.round(s.sys)}/${Math.round(s.dia)}` : '—') },
+  { k: 'temp', label: 'T PERIFÉRICA (DIE + OFFSET)', unit: '°C', d: 2, icon: 'Thermometer', range: '36.0–37.2', st: (v) => (v > 38 ? 'crit' : v > 37.2 ? 'warn' : 'ok'), src: 'hrp-immune' },
+  { k: 'tremor', label: 'MICRO-TEMBLOR · GYRO', unit: 'rad/s', d: 3, icon: 'Zap', range: '< 0.04', st: (v) => (v > 0.1 ? 'crit' : v > 0.04 ? 'warn' : 'ok'), src: 'hrp-sensorimotor' },
+];
+
+function MetricCard({ m, s }) {
+  const v = s[m.k]; const has = v != null && Number.isFinite(v);
+  const L = has ? m.st(v) : 'na'; const c = lvlColor[L];
+  return (
+    <div className={`border rounded p-1.5 bg-black/20 ${L === 'crit' ? 'pulse-red' : ''}`} style={{ borderColor: `${c}55` }}>
+      <div className="flex justify-between items-center"><span className="mono text-[8.5px] tracking-wider text-slate-400 truncate">{m.label}</span><Icon name={m.icon} size={11} style={{ color: c }} /></div>
+      <div className="flex items-baseline gap-1"><span className="mono text-[20px] font-semibold leading-tight" style={{ color: c }}>{m.show ? m.show(s) : fmt(v, m.d)}</span><span className="text-[10px] text-slate-500">{m.unit}</span></div>
+      <Spark data={s.hist?.[m.k]} color={c} />
+      <div className="flex justify-between items-center mt-0.5"><span className="mono text-[8.5px] text-slate-500">ref {m.range}</span><Badge id={m.src} /></div>
+    </div>
+  );
+}
+
+function ReadinessGauge({ a, terms }) {
+  const v = a.readiness, ang = Math.PI * (1 - v / 100), c = a.go ? COL.green : v >= 50 ? COL.amber : COL.red;
+  const x = 100 + 78 * Math.cos(ang), y = 96 - 78 * Math.sin(ang);
+  return (
+    <div className="flex items-center gap-3">
+      <svg viewBox="0 0 200 108" className="w-40 shrink-0">
+        <path d="M22 96 A78 78 0 0 1 178 96" fill="none" stroke="rgba(255,255,255,.08)" strokeWidth="12" />
+        <path d={`M22 96 A78 78 0 0 1 ${x.toFixed(1)} ${y.toFixed(1)}`} fill="none" stroke={c} strokeWidth="12" style={{ filter: `drop-shadow(0 0 6px ${c})` }} />
+        <line x1="139" y1="28.5" x2="133" y2="37" stroke="#fff" strokeOpacity=".5" />
+        <text x="100" y="84" textAnchor="middle" fontSize="34" fontWeight="700" fill={c} className="mono">{v}</text>
+        <text x="100" y="102" textAnchor="middle" fontSize="9" fill="#8aa" className="mono">/ 100 · umbral 70</text>
+      </svg>
+      <div className="min-w-0">
+        <div className={`mono text-xl font-bold ${a.go ? 'text-[#2BFF88]' : 'text-[#FF2A55] blink'}`}>{a.go ? terms.go : terms.nogo}</div>
+        {a.blockers.length ? a.blockers.map((b, i) => <div key={i} className="text-[10.5px] text-[#FF2A55]">■ {b}</div>)
+          : <div className="text-[10.5px] text-slate-400">Sin bloqueos duros. Riesgo dominante: {a.risks[0].name} ({a.risks[0].score}).</div>}
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================== APP */
+function App() {
+  const s = useEngine();
+  const [ui, setUi] = useState({ scenario: 'nominal', sols: 180, sol: 90, g: 0, zone: 'module', mode: 'space', layer: 'all', prebreath: false, led: false, gChangedAt: 0, repsBase: 48 });
+  const [hab, setHabState] = useState(SCENARIOS[0].hab);
+  const [scan, setScan] = useState(null); const [report, setReport] = useState(null); const [done, setDone] = useState({});
+  const scanRef = useRef([]);
+  const set = (p) => setUi((u) => ({ ...u, ...p }));
+  const setHab = (p) => setHabState((h) => ({ ...h, ...p }));
+  const terms = TERMS[ui.mode];
+  const scenario = SCENARIOS.find((x) => x.id === ui.scenario);
+  const live = Engine.source === 'serial' && s.source !== 'failover';
+  const zoneUsed = live ? (s.zone || 'module') : ui.zone;
+  const reps = ui.repsBase + (s.reps || 0);
+  const ctx = { sols: ui.sols, sol: ui.sol, g: ui.g, zone: zoneUsed, prebreath: ui.prebreath, led: ui.led, reps, gChangedAt: ui.gChangedAt, onsd: 0, mode: ui.mode };
+  const a = useMemo(() => assess(s, hab, ctx), [s, hab, ui, zoneUsed]);
+  const cms = useMemo(() => countermeasures(a, hab, ctx), [a]);
+
+  // arranque del motor + reconexión automática al último puerto autorizado
+  useEffect(() => { Engine.start(); Serial.init(); Serial.tryAutoReconnect(); Engine.event('A.R.E.S. en línea · simulador clínico activo'); }, []);
+  // contexto del simulador (respuesta fisiológica al hábitat)
+  useEffect(() => {
+    Engine.simCtx = { base: scenario.base, hab, zone: ui.zone };
+    Engine.sim.g = ui.g; Engine.sim.rssiBase = ZONES[ui.zone].rssi;
+  }, [scenario, hab, ui.zone, ui.g]);
+  // DSN: autoempaquetado cada 10 s + avance de cola
+  const latest = useRef({}); latest.current = { s, a, ctx, hab };
+  const [dsnState, setDsnState] = useState(DSN.state(ui.sols));
+  useEffect(() => {
+    const iv = setInterval(() => setDsnState(DSN.tick(ui.sols)), 1000);
+    const pk = setInterval(() => { const { s, a, ctx, hab } = latest.current; const { hist, ...vit } = s; DSN.enqueue('telemetry', { vit, hab, ctx, readiness: a.readiness, go: a.go, risks: a.risks.map((r) => [r.id, r.score]) }); }, 10000);
+    return () => { clearInterval(iv); clearInterval(pk); };
+  }, [ui.sols]);
+  // bio-escaneo: muestreo a 2 Hz durante 30 s
+  useEffect(() => {
+    if (!scan) return;
+    const el = Date.now() - scan.start;
+    if (el < 30000) scanRef.current.push({ stage: Math.min(3, Math.floor(el / 7500)), s, a });
+    else { const rep = buildReport(scanRef.current, ctx); setScan(null); setReport(rep); Engine.event(`Bio-escaneo completado · readiness ${rep.readiness} · ${rep.go ? terms.go : terms.nogo}`, rep.go ? 'ok' : 'warn'); }
+  }, [s]);
+
+  const applyScenario = (id) => {
+    const sc = SCENARIOS.find((x) => x.id === id);
+    setHabState(sc.hab); setDone({});
+    setUi((u) => ({ ...u, scenario: id, sols: sc.sols, sol: sc.sol, g: sc.g, zone: sc.zone, prebreath: false, led: false, repsBase: sc.reps - (Engine.snap.reps || 0), gChangedAt: u.g !== sc.g ? Date.now() : u.gChangedAt }));
+    Engine.event(`Escenario: ${sc.name} — ${sc.desc}`, id === 'nominal' ? 'info' : 'warn');
+  };
+  const runCM = (c) => {
+    const say = (m) => Engine.event(`Contramedida: ${m}`, 'ok');
+    switch (c.id) {
+      case 'o2': setHab({ fO2: 1.0 }); say('O₂ 100 % por mascarilla'); break;
+      case 'prebreath': setHab({ psi: Math.max(hab.psi, 10.2), fO2: Math.max(hab.fO2, 0.265) }); set({ prebreath: true }); say('pre-respiración O₂ completada · cabina 10.2 psi'); break;
+      case 'scrub': setHab({ co2: 2.0 }); say('CDRA reiniciado · pCO₂ → 2.0 mmHg'); break;
+      case 'shelter': if (live) say('Trasladarse físicamente al refugio: el RSSI real confirmará la zona'); else { set({ zone: 'shelter' }); say('tripulante en refugio de agua (RSSI ≈ −44 dBm)'); } break;
+      case 'hydrate': setHab({ hyd: Math.min(4, hab.hyd + 0.5) }); say('500 mL + citrato de potasio'); break;
+      case 'ared': if (live) say('Iniciar sentadillas: el MPU6050 cuenta las reps en vivo'); else { Engine.sim.startAred(12); say('sesión ARED iniciada (12 reps) — conteo por MPU6050'); } break;
+      case 'led': set({ led: true }); say('iluminación 480 nm activada'); break;
+      case 'noise': setHab({ noise: 55 }); say('ruido reducido a 55 dB'); break;
+      case 'surgeon': { const { hist, ...vit } = s; DSN.enqueue('alert', { vit, risks: a.risks.slice(0, 3), blockers: a.blockers }, 'high'); say(`alerta prioritaria a ${terms.surgeon}`); break; }
+      case 'dsn': { const { hist, ...vit } = s; DSN.enqueue('manual', { vit, hab, readiness: a.readiness }); say('paquete de telemetría encolado'); break; }
+      default: break;
+    }
+    setDone((d) => ({ ...d, [c.id]: Date.now() }));
+  };
+  const startScan = () => { scanRef.current = []; setScan({ start: Date.now() }); setReport(null); Engine.event(`${terms.subject}: bio-escaneo de 30 s iniciado`); };
+
+  const fingerToggle = () => { Engine.sim.finger = !Engine.sim.finger; Engine.event(Engine.sim.finger ? 'Simulación: dedo recolocado' : 'Simulación: sensor retirado del dedo', 'warn'); };
+
+  return (
+    <div className="min-h-screen p-2.5 flex flex-col gap-2.5 text-[12px]">
+      <Header s={s} ui={ui} set={set} terms={terms} onScenario={applyScenario} dsnState={dsnState} />
+
+      {!s.finger && (
+        <div className="panel border-[#FFB800]/70 px-3 py-2 flex items-center gap-3 text-[#FFB800]">
+          <Icon name={['TriangleAlert', 'AlertTriangle']} size={18} className="blink" />
+          <div className="mono text-[12px] font-bold">[ SEÑAL ÓPTICA PERDIDA — RECOLOCAR SENSOR EN LA YEMA DEL DEDO ]</div>
+          <div className="text-[11px] text-slate-300">IR DC = {fmt(Engine.ppg.dcIr, 0)} &lt; umbral {Engine.cfg.fingerThr}. Las métricas ópticas se congelan; nunca se muestran ceros.</div>
+          <div className="ml-auto flex gap-2">
+            {live ? <button className="btn" onClick={() => Serial.disconnect()}>CONMUTAR A SIMULADOR CLÍNICO EN VIVO</button>
+              : <button className="btn" onClick={fingerToggle}>RECOLOCAR DEDO (SIM)</button>}
+          </div>
+        </div>
+      )}
+
+      <main className="grid gap-2.5 flex-1 grid-cols-1 xl:grid-cols-[300px_minmax(0,1fr)_420px]">
+        {/* IZQUIERDA */}
+        <HabitatPanel hab={hab} setHab={setHab} ui={{ ...ui, zoneUsed }} set={set} a={a} terms={terms} s={s} />
+
+        {/* CENTRO */}
+        <div className="flex flex-col gap-2.5 min-w-0">
+          <Panel title={terms.twin} icon="ScanLine"
+            right={<>{LAYERS.map((l) => <button key={l.id} disabled={!!scan} onClick={() => set({ layer: l.id })} className={`btn !text-[9.5px] !px-1.5 !py-0.5 ${ui.layer === l.id ? 'btn-on' : ''}`}>{l.name}</button>)}</>}>
+            <div className="text-[11px] text-slate-400 mb-1.5">{scenario.desc}</div>
+            <div className="h-[520px]"><AnatomyTwin a={a} s={s} layer={ui.layer} setLayer={(l) => set({ layer: l })} scan={scan} terms={terms} /></div>
+            <div className="flex gap-2 mt-2">
+              <button className={`btn flex-1 !py-2 !text-[12px] flex items-center justify-center gap-2 ${scan ? 'btn-on' : ''}`} disabled={!!scan} onClick={startScan}>
+                <Icon name="ScanLine" size={15} /> {scan ? 'ESCANEANDO…' : `[ INICIAR BIO-ESCANEO DE 30 SEGUNDOS ]`}
+              </button>
+              {Engine.simActive() && <button className="btn" onClick={fingerToggle} title="Probar la alerta de pérdida de señal"><Icon name="Fingerprint" size={13} /> {Engine.sim.finger ? 'RETIRAR DEDO (SIM)' : 'RECOLOCAR DEDO'}</button>}
+            </div>
+          </Panel>
+
+          <Panel title="MATRIZ DE RIESGO EXPLICABLE · NASA HRP / CSA" icon="Shield" right={<span className="mono text-[10px] text-slate-400">ponderación CIPHER · {ui.sols} sols · {ui.g}g</span>}>
+            <div className="grid md:grid-cols-3 gap-1.5">
+              {a.risks.map((r) => {
+                const c = lvlColor[lvl(r.score)];
+                return (
+                  <div key={r.id} className="border border-white/10 rounded p-1.5 bg-black/20">
+                    <div className="flex justify-between items-center"><span className="text-[11px] text-slate-200 truncate">{r.name}</span><span className="mono text-[13px] font-bold" style={{ color: c }}>{r.score}</span></div>
+                    <div className="h-1 bg-white/10 rounded my-1"><div className="h-1 rounded transition-all duration-700" style={{ width: `${r.score}%`, background: c, boxShadow: `0 0 6px ${c}` }} /></div>
+                    <div className="text-[10px] text-slate-400 leading-snug min-h-[26px]">{r.factors.length ? r.factors.slice(0, 2).join(' · ') : 'Sin factores activos'}</div>
+                    <div className="flex gap-1 flex-wrap mt-1">{r.src.map((x) => <Badge key={x} id={x} />)}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </Panel>
+        </div>
+
+        {/* DERECHA */}
+        <div className="flex flex-col gap-2.5 min-w-0">
+          <Panel title="PLETISMÓGRAFO PPG · MAX30102" icon="Activity"
+            right={<><span className="mono text-[10px]" style={{ color: s.pi < 1 ? COL.amber : COL.cyan }}>PI {fmt(s.pi, 2)} %</span>
+              <span className="mono text-[10px]" style={{ color: s.sqi < 0.5 ? COL.amber : COL.green }}>SQI {s.sqi != null ? Math.round(s.sqi * 100) : '—'} %</span>
+              <span className="mono text-[10px] text-slate-400">{s.dsp ? 'DSP navegador' : 'FW'}</span></>}>
+            <div className="h-[190px] rounded bg-black/40 border border-white/5"><PPGScope /></div>
+            <div className="flex justify-between mono text-[9.5px] text-slate-500 mt-1">
+              <span>6 s · {fmt(Engine.ppg.fs, 0)} Hz · ▮ latido detectado</span>
+              <span>R = {fmt(s.R, 3)} · morfología {s.si > 8.5 ? 'RÍGIDA (sin muesca dicrótica)' : 'NORMAL (muesca dicrótica)'}</span>
+            </div>
+          </Panel>
+
+          <Panel title="BRAZALETE · 8 INDICADORES" icon="Cpu" right={<span className="mono text-[10px] text-slate-400">tarjetas a 2 Hz</span>}>
+            <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-2 gap-1.5">{METRICS.map((m) => <MetricCard key={m.k} m={m} s={s} />)}</div>
+            <div className="grid grid-cols-3 gap-1.5 mt-1.5 mono text-[10px]">
+              <div className="border border-white/10 rounded p-1.5"><div className="text-slate-500">REPS ARED HOY</div><div className={`text-[16px] ${reps < 30 ? 'text-[#FFB800]' : 'text-[#00F0FF]'}`}>{reps}<span className="text-slate-500 text-[10px]"> / 60</span></div><Badge id="hrp-renal" /></div>
+              <div className="border border-white/10 rounded p-1.5"><div className="text-slate-500">ACTIVIDAD</div><div className="text-[16px] text-[#00F0FF]">{fmt(s.activity, 3)}<span className="text-slate-500 text-[10px]"> g</span></div><div className="text-slate-500">{s.activity < 0.01 ? 'inmóvil (actigrafía)' : 'en movimiento'}</div></div>
+              <div className="border border-white/10 rounded p-1.5"><div className="text-slate-500">ZONA RSSI</div><div className="text-[13px]" style={{ color: ZONES[zoneUsed].mult > 1 ? COL.red : COL.cyan }}>{ZONES[zoneUsed].short}</div><div className="text-slate-500">{fmt(s.rssi, 0)} dBm · ×{ZONES[zoneUsed].mult}</div></div>
+            </div>
+          </Panel>
+
+          <Panel title={terms.readiness} icon="Gauge" className={a.go ? '' : 'pulse-red'}>
+            <ReadinessGauge a={a} terms={terms} />
+          </Panel>
+
+          <Panel title="MOTOR DE CONTRAMEDIDAS AUTÓNOMAS" icon="Shield">
+            <div className="space-y-1">
+              {cms.map((c) => (
+                <button key={c.id} onClick={() => runCM(c)} className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded border border-[#00F0FF]/25 hover:border-[#00F0FF] hover:bg-[#00F0FF]/10 transition">
+                  <Icon name={done[c.id] ? 'CheckCheck' : 'ChevronRight'} size={13} className={done[c.id] ? 'text-[#2BFF88]' : 'text-[#00F0FF]'} />
+                  <span className="flex-1"><span className="mono text-[11px] text-white">[ {c.label} ]</span><span className="block text-[10px] text-slate-400">{c.why}{c.risk ? ` · riesgo ${a.risks.find((r) => r.id === c.risk)?.score ?? 0}` : ''}</span></span>
+                </button>
+              ))}
+            </div>
+          </Panel>
+        </div>
+      </main>
+
+      <footer className="panel p-2 grid md:grid-cols-[1fr_auto] gap-2">
+        <div className="mono text-[10px] max-h-20 overflow-auto">
+          {Engine.events.slice(0, 8).map((e, i) => (
+            <div key={e.t + '' + i} className={e.level === 'warn' ? 'text-[#FFB800]' : e.level === 'ok' ? 'text-[#2BFF88]' : 'text-slate-400'}>
+              {new Date(e.t).toLocaleTimeString()} · {e.msg}
+            </div>
+          ))}
+        </div>
+        <div className="text-[9.5px] text-slate-500 max-w-md leading-snug">
+          Prototipo de investigación para NASA Space Apps 2026 — no es un dispositivo médico. La PA sin manguito es un proxy experimental que requiere calibración individual; la temperatura del die del MAX30102 es un proxy de temperatura periférica.
+        </div>
+      </footer>
+
+      {report && <ReportModal rep={report} onClose={() => setReport(null)} terms={terms} />}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

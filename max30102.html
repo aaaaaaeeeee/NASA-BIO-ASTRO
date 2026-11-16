@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#05070B" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<title>BIO-ASTRO · Consola Biomédica Espacial</title>
+<!-- Sin dependencias externas: funciona sin internet el día de la demo. Requiere ares-core.js en la misma carpeta. -->
+<script src="./ares-core.js?v=83"></script>
+<script src="./ares-imu.js?v=83"></script>
+<style>
+  :root { --bg:#0A0A0C; --cyan:#38BDF8; --amber:#F59E0B; --red:#EF4444; --green:#10B981; --dim:#63636E; --txt:#F4F3EF; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html,body { background:var(--bg); color:var(--txt); font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; font-size:13px; }
+  .mono { font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace; }
+  .wrap { max-width:1500px; margin:0 auto; padding:12px; display:flex; flex-direction:column; gap:12px; min-height:100vh; }
+  .panel { background:linear-gradient(180deg,rgba(56,189,248,.045),rgba(56,189,248,.01)); border:1px solid rgba(56,189,248,.22); border-radius:6px; padding:12px; position:relative; }
+  .panel::before { content:""; position:absolute; inset:-1px; border-radius:6px; pointer-events:none;
+    background:linear-gradient(var(--cyan),var(--cyan)) top left/12px 1px no-repeat, linear-gradient(var(--cyan),var(--cyan)) top left/1px 12px no-repeat,
+               linear-gradient(var(--cyan),var(--cyan)) bottom right/12px 1px no-repeat, linear-gradient(var(--cyan),var(--cyan)) bottom right/1px 12px no-repeat; }
+  .ptitle { font-family:ui-monospace,Menlo,monospace; letter-spacing:.14em; font-size:10.5px; color:var(--cyan); text-transform:uppercase; }
+  .row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .btn { font-family:ui-monospace,Menlo,monospace; font-size:11.5px; letter-spacing:.06em; background:none; border:1px solid rgba(56,189,248,.5); color:var(--cyan); padding:7px 11px; border-radius:4px; cursor:pointer; transition:all .15s; }
+  .btn:hover { background:rgba(56,189,248,.12); box-shadow:0 0 12px rgba(56,189,248,.25); }
+  .btn:disabled { opacity:.35; cursor:not-allowed; }
+  .btn.on { background:rgba(56,189,248,.2); color:#fff; }
+  .chip { font-family:ui-monospace,Menlo,monospace; font-size:11px; padding:5px 9px; border-radius:4px; border:1px solid; }
+  .blink { animation:blink 1s steps(2) infinite; } @keyframes blink { 50% { opacity:.25; } }
+  .pulse-red { animation:pr 1.2s ease-in-out infinite; } @keyframes pr { 50% { box-shadow:0 0 0 1px var(--red),0 0 22px rgba(255,42,85,.5); } }
+  header .brand { font-family:ui-monospace,Menlo,monospace; font-weight:700; letter-spacing:.18em; font-size:15px; color:#fff; }
+  header .brand span { color:var(--cyan); }
+  header .sub { font-family:ui-monospace,Menlo,monospace; font-size:9.5px; color:#7d97a8; letter-spacing:.08em; }
+  .banner { display:none; border-color:rgba(255,184,0,.7); color:var(--amber); }
+  .banner.show { display:flex; }
+  .main { display:grid; grid-template-columns:minmax(0,1fr) 380px; gap:12px; }
+  @media (max-width:1100px) { .main { grid-template-columns:1fr; } }
+  .scope { height:330px; background:rgba(0,0,0,.4); border:1px solid rgba(255,255,255,.05); border-radius:4px; }
+  canvas { width:100%; height:100%; display:block; }
+  .big { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .vital { border:1px solid; border-radius:6px; padding:12px 14px; background:rgba(0,0,0,.25); }
+  .vital .lbl { font-family:ui-monospace,Menlo,monospace; font-size:10.5px; letter-spacing:.12em; color:#A0A0AB; display:flex; justify-content:space-between; }
+  .vital .val { font-family:ui-monospace,Menlo,monospace; font-size:64px; font-weight:700; line-height:1.05; }
+  .vital .unit { font-size:16px; color:#6f8a9a; font-weight:400; margin-left:6px; }
+  .vital .ref { font-family:ui-monospace,Menlo,monospace; font-size:10px; color:#63636E; }
+  .grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }
+  @media (max-width:800px) { .grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .big { grid-template-columns:1fr; } }
+  .card { border:1px solid; border-radius:5px; padding:8px; background:rgba(0,0,0,.2); }
+  .card .lbl { font-family:ui-monospace,Menlo,monospace; font-size:9px; letter-spacing:.1em; color:#A0A0AB; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .card .val { font-family:ui-monospace,Menlo,monospace; font-size:24px; font-weight:600; line-height:1.2; }
+  .card .unit { font-size:10px; color:#6f8a9a; margin-left:3px; font-weight:400; }
+  .card .ref { font-family:ui-monospace,Menlo,monospace; font-size:9px; color:#63636E; }
+  .spark { height:22px; }
+  .side { display:flex; flex-direction:column; gap:12px; }
+  .morph { height:170px; }
+  .kv { display:flex; justify-content:space-between; font-size:11.5px; padding:4px 0; border-bottom:1px solid rgba(255,255,255,.05); }
+  .kv span:last-child { font-family:ui-monospace,Menlo,monospace; color:#fff; }
+  input[type=number] { background:#1A1A1F; border:1px solid rgba(56,189,248,.35); color:var(--txt); border-radius:4px; font-size:11.5px; padding:4px 6px; width:96px; font-family:ui-monospace,Menlo,monospace; }
+  .log { font-family:ui-monospace,Menlo,monospace; font-size:10.5px; max-height:90px; overflow:auto; }
+  .muted { color:#6f8a9a; font-size:10.5px; line-height:1.45; }
+  .presets { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ================================================================ HEADER -->
+  <header class="panel row" style="justify-content:space-between">
+    <div class="row">
+      <div>
+        <div class="brand">BIO-ASTRO <span>· CONSOLA MAX30102</span></div>
+        <div class="sub">PULSIOXÍMETRO PPG · DSP EN NAVEGADOR · MIB · NASA SPACE APPS 2026</div>
+      </div>
+    </div>
+    <div class="row">
+      <button class="btn" id="btnConnect">[ CONECTAR SENSOR MAX30102 · USB ]</button>
+      <button class="btn" id="btnSim" style="border-color:rgba(255,184,0,.6);color:var(--amber)">USAR SIMULADOR</button>
+      <div class="chip blink" id="simBadge" style="display:none;color:var(--amber);border-color:var(--amber);font-weight:700">MODO SIMULADOR · NO ES TU SENSOR</div>
+      <div class="mono" style="font-size:10.5px;line-height:1.35">
+        <div id="srcLabel" style="color:var(--dim)">● SIN SENSOR · ESPERANDO CONEXIÓN</div>
+        <div id="rateLabel" style="color:#6f8a9a">— Hz · — pkt/s</div>
+      </div>
+      <div class="chip" id="fingerChip">—</div>
+    </div>
+  </header>
+
+  <!-- ============================================================ ALERTA DE CAÍDA + PESTAÑAS -->
+  <div class="panel row pulse-red" id="fallBanner" style="display:none;border-color:var(--red);color:var(--red)"></div>
+  <nav class="row" id="tabs" style="gap:8px">
+    <button class="btn on" data-tab="MAX" style="font-size:12.5px;padding:9px 16px">MAX30102 · ÓPTICO (PULSO / SpO₂)</button>
+    <button class="btn" data-tab="MPU" style="font-size:12.5px;padding:9px 16px">MPU6050 · INERCIAL (MOVIMIENTO / FUERZA / SUEÑO)</button>
+    <button class="btn" data-tab="BODY" style="font-size:12.5px;padding:9px 16px">CUERPO 3D · GEMELO ANATÓMICO</button>
+    <span class="chip" id="ancBadge" style="display:none;color:var(--amber);border-color:var(--amber)"></span>
+    <span class="chip" id="mpuChip" style="margin-left:auto;color:var(--dim);border-color:var(--dim)">MPU6050 —</span>
+  </nav>
+
+  <div id="viewMAX" style="display:flex;flex-direction:column;gap:12px">
+
+  <!-- ============================================== ALERTA DE PÉRDIDA DE SEÑAL -->
+  <div class="panel banner row" id="lostBanner">
+    <span class="mono blink" id="lostTitle" style="font-weight:700;font-size:13px">[ SEÑAL ÓPTICA PERDIDA ]</span>
+    <span class="muted" id="lostDetail" style="color:#F4F3EF"></span>
+    <button class="btn" id="btnLostAction" style="margin-left:auto">CONMUTAR A SIMULADOR CLÍNICO EN VIVO</button>
+  </div>
+
+  <div class="main">
+    <!-- ============================================================ COLUMNA PRINCIPAL -->
+    <div style="display:flex;flex-direction:column;gap:12px;min-width:0">
+
+      <section class="panel">
+        <div class="row" style="justify-content:space-between;margin-bottom:8px">
+          <div class="ptitle">Pletismógrafo PPG en vivo · IR 880 nm + RED 660 nm</div>
+          <div class="row mono" style="font-size:11px;gap:14px">
+            <span id="piHead">PI —</span><span id="sqiHead">SQI —</span><span id="morphHead" style="color:#6f8a9a">—</span>
+          </div>
+        </div>
+        <div class="scope"><canvas id="scope"></canvas></div>
+        <div class="row mono" style="justify-content:space-between;font-size:10px;color:#6f8a9a;margin-top:6px">
+          <span id="scopeInfo">ventana 6 s · ▮ latido detectado</span>
+          <span>Las tarjetas se actualizan a 2 Hz · la onda a 60 fps (canvas, sin re-renders)</span>
+        </div>
+      </section>
+
+      <section class="big">
+        <div class="vital" id="vHR">
+          <div class="lbl"><span>♥ FRECUENCIA CARDÍACA</span><span id="hrSrc">IBI pico-a-pico</span></div>
+          <div><span class="val" id="hrVal">—</span><span class="unit">lpm</span></div>
+          <div class="spark"><svg id="hrSpark" viewBox="0 0 100 20" preserveAspectRatio="none" width="100%" height="22"></svg></div>
+          <div class="ref">referencia 50–100 lpm</div>
+        </div>
+        <div class="vital" id="vSPO2">
+          <div class="lbl"><span>◉ SATURACIÓN DE OXÍGENO · SpO₂</span><span>Ratio of Ratios</span></div>
+          <div><span class="val" id="spo2Val">—</span><span class="unit">%</span></div>
+          <div class="spark"><svg id="spo2Spark" viewBox="0 0 100 20" preserveAspectRatio="none" width="100%" height="22"></svg></div>
+          <div class="ref">referencia ≥ 95 % · R = (AC<sub>red</sub>/DC<sub>red</sub>) / (AC<sub>ir</sub>/DC<sub>ir</sub>) = <span id="rVal">—</span></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="ptitle" style="margin-bottom:8px">Métricas derivadas de la onda PPG</div>
+        <div class="grid" id="cards"></div>
+      </section>
+    </div>
+
+    <!-- ============================================================ COLUMNA LATERAL -->
+    <div class="side">
+      <section class="panel">
+        <div class="ptitle" style="margin-bottom:8px">Morfología del pulso · promedio de 8 latidos</div>
+        <div class="morph"><canvas id="morph"></canvas></div>
+        <div class="muted" style="margin-top:6px">Arteria elástica: muesca dicrótica visible. Arteria rígida: la onda reflejada llega antes y se funde con la sistólica. Stiffness Index = altura / ΔT (Millasseau 2002).</div>
+      </section>
+
+      <section class="panel">
+        <div class="ptitle" style="margin-bottom:8px">Datos crudos del sensor</div>
+        <div class="kv"><span>Estado del dedo</span><span id="rawState">—</span></div>
+        <div class="kv"><span>IR instantáneo</span><span id="rawIrNow">—</span></div>
+        <div class="kv"><span>IR DC (cuentas ADC 18 bit)</span><span id="rawIr">—</span></div>
+        <div class="kv"><span>RED DC</span><span id="rawRed">—</span></div>
+        <div class="kv"><span>Umbral de contacto</span><span id="rawThr">—</span></div>
+        <div class="kv"><span>Frecuencia de muestreo</span><span id="rawFs">—</span></div>
+        <div class="kv"><span>Latidos válidos / artefactos</span><span id="rawBeats">—</span></div>
+        <div class="kv"><span>Última línea recibida</span><span id="rawLine" style="max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">—</span></div>
+        <div class="kv"><span>Errores de parseo JSON</span><span id="rawErr">0</span></div>
+        <div class="kv"><span>Último log del ESP32</span><span id="rawLog" style="max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">—</span></div>
+      </section>
+
+      <section class="panel" id="simPanel">
+        <div class="ptitle" style="margin-bottom:8px">Simulador clínico (demo sin hardware)</div>
+        <div class="presets" id="presets"></div>
+        <button class="btn" id="btnFinger" style="width:100%;margin-top:8px">RETIRAR DEDO (PROBAR ALERTA)</button>
+        <button class="btn" id="btnObject" style="width:100%;margin-top:6px">SIMULAR OBJETO SIN PULSO</button>
+      </section>
+
+      <section class="panel">
+        <div class="ptitle" style="margin-bottom:8px">Calibración</div>
+        <div class="kv"><span>Umbral IR de contacto</span><input type="number" id="cfgThr" step="1000" /></div>
+        <button class="btn" id="btnCal" style="width:100%;margin:6px 0">CALIBRAR SIN DEDO (3 s)</button>
+        <div class="muted" id="calInfo">Retira el dedo y pulsa: mide la luz que el sensor ve sin dedo y fija el umbral por encima.</div>
+        <div class="kv"><span>Offset T die → piel (°C)</span><input type="number" id="cfgOff" step="0.1" /></div>
+        <div class="kv"><span>Failover automático al simulador</span><input type="checkbox" id="cfgFail" /></div>
+      </section>
+    </div>
+  </div>
+  </div><!-- /viewMAX -->
+
+  <div id="viewMPU" style="display:none;flex-direction:column;gap:12px"></div>
+  <div id="viewBODY" style="display:none;flex-direction:column;gap:12px"></div>
+
+  <footer class="panel" style="display:grid;grid-template-columns:1fr auto;gap:12px">
+    <div class="log" id="log"></div>
+    <div class="muted" style="max-width:420px">Prototipo de investigación — no es un dispositivo médico. La PA sin manguito es un proxy experimental que requiere calibración individual. La temperatura del die del MAX30102 es un proxy de temperatura periférica.</div>
+  </footer>
+</div>
+
+<script>
+(() => {
+  'use strict';
+  const { Engine, Serial, Bridge } = window.ARES;
+  let bridgeOk = false;
+  const COL = { cyan: '#38BDF8', amber: '#F59E0B', red: '#EF4444', green: '#10B981', dim: '#63636E' };
+  const $ = (id) => document.getElementById(id);
+  const fmt = (v, d = 0) => (v == null || !Number.isFinite(v) ? '—' : v.toFixed(d));
+
+  /* ---------------------------------------------------------- presets del simulador */
+  const NOMINAL_HAB = { psi: 14.7, fO2: 0.21, co2: 2.0, rad: 0.5, noise: 55, glucose: 92, hyd: 3.0 };
+  const PRESETS = [
+    { id: 'normal', name: 'NORMAL', base: { hr: 66, rmssd: 55, spo2: 98.4, pi: 3.6, resp: 13, si: 6.6, temp: 36.6, tremor: 0.015 } },
+    { id: 'hipoxia', name: 'HIPOXIA', base: { hr: 104, rmssd: 22, spo2: 86, pi: 1.4, resp: 23, si: 7.0, temp: 36.5, tremor: 0.02 } },
+    { id: 'taqui', name: 'ESTRÉS / TAQUICARDIA', base: { hr: 118, rmssd: 16, spo2: 97.5, pi: 2.0, resp: 20, si: 7.4, temp: 37.0, tremor: 0.02 } },
+    { id: 'rigidez', name: 'RIGIDEZ ARTERIAL', base: { hr: 76, rmssd: 30, spo2: 97, pi: 2.2, resp: 15, si: 10.5, temp: 36.7, tremor: 0.02 } },
+    { id: 'bradi', name: 'BRADICARDIA ATLÉTICA', base: { hr: 50, rmssd: 85, spo2: 99, pi: 5.0, resp: 10, si: 5.4, temp: 36.4, tremor: 0.01 } },
+    { id: 'fiebre', name: 'FIEBRE / REACT. VIRAL', base: { hr: 96, rmssd: 24, spo2: 96.5, pi: 4.2, resp: 19, si: 6.8, temp: 38.2, tremor: 0.02 } },
+  ];
+  let preset = PRESETS[0];
+  const setPreset = (p) => {
+    preset = p;
+    Engine.simCtx = { base: p.base, hab: NOMINAL_HAB, zone: 'module' };
+    document.querySelectorAll('#presets .btn').forEach((b) => b.classList.toggle('on', b.dataset.id === p.id));
+    Engine.event(`Simulador: perfil ${p.name}`);
+  };
+  PRESETS.forEach((p) => {
+    const b = document.createElement('button'); b.className = 'btn'; b.textContent = p.name; b.dataset.id = p.id;
+    b.onclick = () => { if (Engine.source !== "serial") startSim(); setPreset(p); }; $('presets').appendChild(b);
+  });
+
+  /* ---------------------------------------------------------- tarjetas */
+  const CARDS = [
+    { k: 'rmssd', label: 'HRV · RMSSD', unit: 'ms', d: 0, ref: '> 35 ms', st: (v) => (v < 20 ? 'crit' : v < 35 ? 'warn' : 'ok'), hint: 'Estrés autonómico (aislamiento)' },
+    { k: 'resp', label: 'FREC. RESPIRATORIA', unit: 'rpm', d: 0, ref: '10–20 rpm', st: (v) => (v > 28 || v < 7 ? 'crit' : v > 20 || v < 10 ? 'warn' : 'ok'), hint: 'Modulación de línea base (RIIV)' },
+    { k: 'pi', label: 'ÍNDICE DE PERFUSIÓN', unit: '%', d: 2, ref: '> 1 %', st: (v) => (v < 0.4 ? 'crit' : v < 1 ? 'warn' : 'ok'), hint: 'AC/DC IR · vasoconstricción' },
+    { k: 'si', label: 'RIGIDEZ ARTERIAL · SI', unit: 'm/s', d: 1, ref: '5–8.5 m/s', st: (v) => (v > 10 ? 'crit' : v > 8.5 ? 'warn' : 'ok'), hint: 'Envejecimiento vascular (CSA)' },
+    { k: 'sys', label: 'PA PROXY (EXPERIMENTAL)', unit: 'mmHg', d: 0, ref: 'requiere calibración', st: (v) => (v > 150 ? 'crit' : v > 135 ? 'warn' : 'ok'), show: (s) => (s.sys ? `${Math.round(s.sys)}/${Math.round(s.dia)}` : '—'), hint: 'Derivada de SI + FC' },
+    { k: 'therm', label: 'T DEDO · TERMISTOR', unit: '°C', d: 1, ref: '28–36 °C (piel)', st: (v) => (v > 38 || v < 22 ? 'crit' : v > 36.5 || v < 26 ? 'warn' : 'ok'), hint: 'NTC 10 kΩ en GPIO 16 · estación ESP32-S3' },
+    { k: 'temp', label: 'T PERIFÉRICA (DIE)', unit: '°C', d: 2, ref: '36.0–37.2 °C', st: (v) => (v > 38 ? 'crit' : v > 37.2 ? 'warn' : 'ok'), hint: 'Sensor interno del MAX30102' },
+    { k: 'sqi', label: 'CALIDAD DE SEÑAL · SQI', unit: '%', d: 0, ref: '> 50 %', st: (v) => (v < 0.3 ? 'crit' : v < 0.5 ? 'warn' : 'ok'), show: (s) => (s.sqi != null ? Math.round(s.sqi * 100) : '—'), hint: 'Correlación latido vs plantilla' },
+    { k: 'ibi', label: 'INTERVALO R-R (IBI)', unit: 'ms', d: 0, ref: '600–1200 ms', st: (v) => (v < 460 || v > 1500 ? 'crit' : v < 600 || v > 1200 ? 'warn' : 'ok'), hint: 'Último intervalo pico-a-pico' },
+  ];
+  const lvlColor = { ok: COL.cyan, warn: COL.amber, crit: COL.red, na: COL.dim };
+  const STATES = {
+    nodata: { chip: 'SIN DATOS DEL SENSOR', banner: '[ PUERTO USB ABIERTO PERO EL MAX30102 NO ENVÍA DATOS ]', color: COL.red, blink: true },
+    none: { chip: 'SIN DEDO', banner: '[ SEÑAL ÓPTICA PERDIDA — COLOCAR LA YEMA DEL DEDO SOBRE EL SENSOR ]', color: COL.amber, blink: true },
+    verifying: { chip: 'CONTACTO · VERIFICANDO PULSO…', banner: '[ CONTACTO DETECTADO — VERIFICANDO PULSO ]', color: COL.cyan, blink: true },
+    nopulse: { chip: 'OBJETO SIN PULSO', banner: '[ SIN PULSO ARTERIAL — NO ES UN DEDO O ESTÁ MAL COLOCADO ]', color: COL.red, blink: true },
+    ok: { chip: 'DEDO DETECTADO · PULSO OK', banner: '', color: COL.green, blink: false },
+  };
+  const cardEls = {};
+  for (const c of CARDS) {
+    const el = document.createElement('div'); el.className = 'card';
+    el.innerHTML = `<div class="lbl">${c.label}</div><div><span class="val">—</span><span class="unit">${c.unit}</span></div>
+      <svg viewBox="0 0 100 20" preserveAspectRatio="none" width="100%" height="20"></svg>
+      <div class="ref">${c.ref}</div><div class="ref" style="color:#4f6a7a">${c.hint}</div>`;
+    $('cards').appendChild(el); cardEls[c.k] = el;
+  }
+  const hist = { ibi: [], sqi: [] };
+  const spark = (svg, data, color) => {
+    const v = data.filter(Number.isFinite);
+    if (v.length < 2) { svg.innerHTML = ''; return; }
+    const mn = Math.min(...v), mx = Math.max(...v), r = mx - mn || 1;
+    const pts = data.map((d, i) => (Number.isFinite(d) ? `${((i / (data.length - 1)) * 100).toFixed(1)},${(19 - ((d - mn) / r) * 17).toFixed(1)}` : null)).filter(Boolean).join(' ');
+    svg.innerHTML = `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.3" vector-effect="non-scaling-stroke" opacity=".85"/>`;
+  };
+
+  /* ---------------------------------------------------------- render a 2 Hz */
+  function render() {
+    const s = Engine.snap, p = Engine.ppg;
+    const live = Engine.source === 'serial' && s.source !== 'failover';
+    s.ibi = p.ibis.length && s.finger ? p.ibis[p.ibis.length - 1] : null;
+    hist.ibi.push(s.ibi ?? NaN); hist.sqi.push(s.sqi ?? NaN);
+    if (hist.ibi.length > 90) { hist.ibi.shift(); hist.sqi.shift(); }
+
+    // header
+    const src = $('srcLabel'), simOn = Engine.simActive();
+    const srcTxt = s.source === 'failover' ? ['● FAILOVER · SIMULADOR (DATOS FICTICIOS)', COL.amber]
+      : Engine.source === 'serial' ? (s.contact === 'nodata' ? ['● USB ABIERTO · SIN DATOS DEL SENSOR', COL.red] : [Engine.via === "bridge" ? "● SENSOR REAL MAX30102 (USB · puente local)" : "● SENSOR REAL MAX30102 (USB)", COL.green])
+      : simOn ? ['● SIMULADOR · DATOS FICTICIOS', COL.amber] : ['● SIN SENSOR · ESPERANDO CONEXIÓN', COL.dim];
+    src.textContent = srcTxt[0]; src.style.color = srcTxt[1];
+    src.className = simOn || s.contact === 'nodata' ? 'blink' : '';
+    $('rateLabel').textContent = `${fmt(s.sps, 0)} Hz · ${fmt(s.pps, 1)} pkt/s · ${Engine.stats.lines} líneas`;
+    $('btnConnect').textContent = Engine.source === 'serial' ? 'DESCONECTAR' : 'CONECTAR ESP32 · USB';
+    $("btnConnect").disabled = !Serial.supported() && !bridgeOk;
+    if (!Serial.supported()) $('btnConnect').title = 'Requiere Chrome/Edge de escritorio en https:// o localhost';
+    $('btnSim').textContent = Engine.source === 'sim' ? 'DETENER SIMULADOR' : 'USAR SIMULADOR';
+    $('btnSim').style.display = Engine.source === 'serial' ? 'none' : '';
+    $('simBadge').style.display = simOn ? '' : 'none';
+    const st = STATES[s.contact || 'none'];
+    const fc = $('fingerChip');
+    fc.textContent = st.chip;
+    fc.style.color = fc.style.borderColor = st.color;
+    fc.className = 'chip' + (st.blink ? ' blink' : '');
+
+    // banner: sin contacto / verificando pulso / objeto sin pulso
+    const ban = $('lostBanner');
+    ban.classList.toggle('show', !s.finger);
+    ban.style.color = ban.style.borderColor = st.color;
+    $('lostTitle').textContent = s.contact === 'nodata' && Engine.source !== 'serial' ? '[ SENSOR NO CONECTADO — PULSA «CONECTAR SENSOR» ]' : st.banner;
+    $('lostDetail').textContent = s.contact === 'nodata'
+      ? (Engine.source === 'serial'
+        ? `El puerto está abierto pero no llegan líneas JSON válidas (${Engine.stats.lines} líneas, ${Engine.stats.parseErr} con error). Revisa: firmware cargado, «USB CDC On Boot: Enabled», cables SDA/SCL. Último texto: ${Engine.stats.lastLine || '—'}`
+        : 'Sin datos no se muestra ningún dedo ni métrica. Para una demo sin hardware usa el simulador (datos ficticios).')
+      : s.contact === 'nopulse'
+      ? `Hay reflexión (IR ${fmt(p.lastIr, 0)}) pero no hay latidos en 10 s. Coloca la yema del dedo con presión suave.`
+      : s.contact === 'verifying' ? 'Contacto óptico detectado. Confirmando latidos reales antes de mostrar métricas…'
+      : `IR ${fmt(p.lastIr, 0)} < umbral ${Engine.cfg.fingerThr}. Las métricas se congelan: nunca se muestran ceros.`;
+    // Solo ofrecer acción del simulador cuando el simulador está en uso o no hay sensor
+    $('btnLostAction').style.display = s.contact === 'verifying' || Engine.source === 'serial' ? 'none' : '';
+    $('btnLostAction').textContent = simOn ? 'RECOLOCAR DEDO (SIM)' : 'USAR SIMULADOR';
+    $('simPanel').style.opacity = Engine.simActive() ? 1 : 0.35;
+    $('btnFinger').textContent = Engine.sim.finger ? 'RETIRAR DEDO (PROBAR ALERTA)' : 'RECOLOCAR DEDO';
+    $('btnObject').textContent = Engine.sim.object ? 'QUITAR OBJETO (VOLVER AL DEDO)' : 'SIMULAR OBJETO SIN PULSO';
+    $('rawState').textContent = st.chip; $('rawState').style.color = st.color;
+    $('rawIrNow').textContent = fmt(p.lastIr, 0);
+
+    // vitales grandes
+    const hrSt = s.bpm == null ? 'na' : s.bpm > 130 || s.bpm < 40 ? 'crit' : s.bpm > 100 || s.bpm < 50 ? 'warn' : 'ok';
+    const spSt = s.spo2 == null ? 'na' : s.spo2 < 90 ? 'crit' : s.spo2 < 95 ? 'warn' : 'ok';
+    for (const [id, val, st, d, sp, key] of [['HR', s.bpm, hrSt, 0, 'hrSpark', 'bpm'], ['SPO2', s.spo2, spSt, 1, 'spo2Spark', 'spo2']]) {
+      const box = $('v' + id), c = lvlColor[st];
+      box.style.borderColor = c + '66'; box.classList.toggle('pulse-red', st === 'crit');
+      const v = $(id === 'HR' ? 'hrVal' : 'spo2Val'); v.textContent = fmt(val, d); v.style.color = c;
+      spark($(sp), s.hist?.[key] || [], c);
+    }
+    $('hrSrc').textContent = s.dsp ? 'DSP navegador · IBI pico-a-pico' : s.finger ? 'firmware' : 'esperando dedo';
+    $('rVal').textContent = fmt(s.R, 3);
+
+    // tarjetas
+    for (const c of CARDS) {
+      const el = cardEls[c.k], v = s[c.k], has = v != null && Number.isFinite(v);
+      const st = has ? c.st(v) : 'na', col = lvlColor[st];
+      el.style.borderColor = col + '55'; el.classList.toggle('pulse-red', st === 'crit');
+      const ve = el.querySelector('.val'); ve.textContent = c.show ? c.show(s) : fmt(v, c.d); ve.style.color = col;
+      spark(el.querySelector('svg'), (s.hist && s.hist[c.k]) || hist[c.k] || [], col);
+    }
+
+    // cabecera del osciloscopio
+    $('piHead').textContent = `PI ${fmt(s.pi, 2)} %`; $('piHead').style.color = s.pi < 1 ? COL.amber : COL.cyan;
+    $('sqiHead').textContent = `SQI ${s.sqi != null ? Math.round(s.sqi * 100) : '—'} %`; $('sqiHead').style.color = s.sqi < 0.5 ? COL.amber : COL.green;
+    $('morphHead').textContent = s.si == null ? 'morfología —' : s.si > 8.5 ? 'morfología RÍGIDA' : 'morfología NORMAL (muesca dicrótica)';
+    $('scopeInfo').textContent = `ventana 6 s · ${fmt(p.fs, 0)} Hz · ▮ latido detectado`;
+
+    // crudos
+    $('rawIr').textContent = fmt(p.dcIr, 0); $('rawRed').textContent = fmt(p.dcRed, 0);
+    $('rawThr').textContent = Engine.cfg.fingerThr; $('rawFs').textContent = `${fmt(p.fs, 0)} Hz (medido ${fmt(s.sps, 0)})`;
+    const okN = p.ibiOk.filter(Boolean).length; $('rawBeats').textContent = `${okN} / ${p.ibiOk.length - okN}`;
+    $("rawLine").textContent = Engine.stats.lastLine || "—"; $("rawLine").title = Engine.stats.lastLine || ""; $('rawErr').textContent = Engine.stats.parseErr; $('rawLog').textContent = Engine.stats.lastLog || '—';
+
+    // log
+    $('log').innerHTML = Engine.events.slice(0, 8).map((e) =>
+      `<div style="color:${e.level === 'warn' ? COL.amber : e.level === 'ok' ? COL.green : '#7d97a8'}">${new Date(e.t).toLocaleTimeString()} · ${e.msg}</div>`).join('');
+  }
+
+  /* ---------------------------------------------------------- osciloscopio 60 fps */
+  function fitCanvas(c) {
+    const dpr = window.devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+    if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
+    const ctx = c.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
+    return { ctx, w, h };
+  }
+  function gridLines(ctx, w, h, nx, ny) {
+    ctx.strokeStyle = 'rgba(56,189,248,0.07)'; ctx.lineWidth = 1;
+    for (let i = 1; i < nx; i++) { const x = (i * w) / nx; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
+    for (let i = 1; i < ny; i++) { const y = (i * h) / ny; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
+  }
+  const sc = { ir: [-1, 1], red: [-1, 1] };
+  function lane(ctx, ring, N, y0, hh, w, color, s, glow) {
+    if (ring.len < 2) return;
+    let mn = Infinity, mx = -Infinity;
+    for (let k = 0; k < N; k++) { const v = ring.last(k); if (v < mn) mn = v; if (v > mx) mx = v; }
+    if (mx - mn < 1e-6) { mn -= 1; mx += 1; }
+    const pad = (mx - mn) * 0.12; s[0] += (mn - pad - s[0]) * 0.08; s[1] += (mx + pad - s[1]) * 0.08;
+    const r = s[1] - s[0] || 1;
+    ctx.beginPath();
+    for (let k = N - 1; k >= 0; k--) {
+      const x = w - (k / (N - 1)) * w, y = y0 + hh - ((ring.last(k) - s[0]) / r) * hh;
+      k === N - 1 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = color; ctx.lineWidth = 1.8; ctx.shadowColor = color; ctx.shadowBlur = glow; ctx.stroke(); ctx.shadowBlur = 0;
+  }
+  function drawScope() {
+    const { ctx, w, h } = fitCanvas($('scope'));
+    gridLines(ctx, w, h, 12, 8);
+    const p = Engine.ppg, N = Math.min(p.scopeIr.len, p.fs * 6);
+    ctx.font = '10px ui-monospace, Menlo, monospace';
+    ctx.fillStyle = 'rgba(56,189,248,.75)'; ctx.fillText('IR 880 nm · AC filtrado (invertido: ↑ = volumen sanguíneo)', 8, 14);
+    ctx.fillStyle = 'rgba(255,42,85,.85)'; ctx.fillText('RED 660 nm', 8, h * 0.66 + 14);
+    if (N > 2) {
+      lane(ctx, p.scopeIr, N, 18, h * 0.6, w, COL.cyan, sc.ir, 10);
+      lane(ctx, p.scopeRed, N, h * 0.68, h * 0.3, w, COL.red, sc.red, 5);
+      ctx.fillStyle = COL.green;
+      for (const mk of p.beatMarks) { const k = p.n - 1 - mk; if (k < N) { const x = w - (k / (N - 1)) * w; ctx.fillRect(x - 1, 2, 2, 9); } }
+    }
+    const cs = p.contactState();
+    if (cs !== "ok") {
+      ctx.fillStyle = "rgba(5,8,17,.72)"; ctx.fillRect(0, 0, w, h);
+      ctx.textAlign = 'center';
+      ctx.fillStyle = (Date.now() / 500) % 2 < 1 ? COL.amber : '#7a5800'; ctx.font = 'bold 16px ui-monospace, Menlo, monospace';
+      ctx.fillText(Engine.snap.contact === "nodata" ? "[ SIN DATOS DEL SENSOR ]" : cs === "verifying" ? "[ VERIFICANDO PULSO… ]" : cs === "nopulse" ? "[ OBJETO SIN PULSO ]" : "[ SEÑAL ÓPTICA PERDIDA ]", w / 2, h / 2 - 6);
+      ctx.fillStyle = '#F4F3EF'; ctx.font = '11px ui-monospace, Menlo, monospace';
+      ctx.fillText('Recolocar sensor en la yema del dedo · presión suave · evitar luz ambiental', w / 2, h / 2 + 14);
+      ctx.textAlign = 'left';
+    }
+  }
+  function drawMorph() {
+    const { ctx, w, h } = fitCanvas($('morph'));
+    gridLines(ctx, w, h, 8, 4);
+    const p = Engine.ppg, T = p.template;
+    if (!T || !p.isFinger()) {
+      ctx.fillStyle = '#63636E'; ctx.font = '11px ui-monospace, Menlo, monospace'; ctx.textAlign = 'center';
+      ctx.fillText(p.isFinger() ? 'Acumulando latidos…' : 'Sin dedo con pulso', w / 2, h / 2); ctx.textAlign = 'left'; return;
+    }
+    const N = T.length, X = (i) => 8 + (i / (N - 1)) * (w - 16), Y = (v) => h - 14 - v * (h - 30);
+    ctx.beginPath(); for (let i = 0; i < N; i++) i ? ctx.lineTo(X(i), Y(T[i])) : ctx.moveTo(X(i), Y(T[i]));
+    ctx.strokeStyle = COL.cyan; ctx.lineWidth = 2; ctx.shadowColor = COL.cyan; ctx.shadowBlur = 8; ctx.stroke(); ctx.shadowBlur = 0;
+    const m = Engine.snap;
+    ctx.font = '10px ui-monospace, Menlo, monospace';
+    if (m.si != null && Engine.ppg.metrics) {
+      const pm = Engine.ppg.metrics();
+      if (pm.sysIdx != null) { ctx.fillStyle = COL.green; ctx.beginPath(); ctx.arc(X(pm.sysIdx), Y(T[pm.sysIdx]), 4, 0, 7); ctx.fill(); ctx.fillText('sistólico', X(pm.sysIdx) + 6, Y(T[pm.sysIdx]) + 4); }
+      if (pm.notch != null) {
+        ctx.fillStyle = COL.amber; ctx.beginPath(); ctx.arc(X(pm.notch), Y(T[pm.notch]), 4, 0, 7); ctx.fill(); ctx.fillText('diastólico', X(pm.notch) + 6, Y(T[pm.notch]) - 6);
+        ctx.strokeStyle = 'rgba(255,184,0,.5)'; ctx.setLineDash([3, 3]); ctx.beginPath();
+        ctx.moveTo(X(pm.sysIdx), h - 8); ctx.lineTo(X(pm.notch), h - 8); ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillText(`ΔT → SI ${m.si.toFixed(1)} m/s`, (X(pm.sysIdx) + X(pm.notch)) / 2 - 30, h - 1);
+      }
+    }
+  }
+  let lastMorph = 0;
+  function frame(t) {
+    drawScope();
+    if (t - lastMorph > 250) { drawMorph(); lastMorph = t; }
+    requestAnimationFrame(frame);
+  }
+
+  /* ---------------------------------------------------------- controles */
+  $('btnConnect').onclick = async () => {
+    if (Engine.source === "serial") { if (Engine.via === "bridge") Bridge.disconnect(); else await Serial.disconnect(); render(); return; }
+    // 1) Puente local (bridge.rb): sin selector, funciona en cualquier navegador
+    const st = await Bridge.status();
+    if (st && st.device) { Bridge.connect(); render(); return; }
+    if (st && !st.device) Engine.event("Puente activo pero no encuentra el ESP32 en /dev/cu.usbserial* — revisa el cable", "warn");
+    // 2) Web Serial (Chrome/Edge): muestra el selector de puerto
+    try { await Serial.connect(); } catch (e) { if (e.name !== 'NotFoundError') Engine.event(`No se pudo abrir el puerto: ${e.message}`, 'warn'); }
+    render();
+  };
+  const startSim = () => { if (Engine.source === "serial") return; Engine.source = "sim"; Engine.sim.finger = true; Engine.sim.object = false; Engine.event("Simulador ACTIVADO — datos ficticios, no es tu sensor", "warn"); render(); };
+  const stopSim = () => { Engine.source = "none"; Engine.event("Simulador detenido — esperando sensor"); render(); };
+  window.ARES_UI = { startSim, stopSim, render: () => render() };
+  const toggleFinger = () => { Engine.sim.finger = !Engine.sim.finger; Engine.event(Engine.sim.finger ? 'Simulación: dedo recolocado' : 'Simulación: sensor retirado del dedo', 'warn'); render(); };
+  $('btnFinger').onclick = toggleFinger;
+  $('btnObject').onclick = () => {
+    Engine.sim.object = !Engine.sim.object; Engine.sim.finger = true;
+    Engine.event(Engine.sim.object ? 'Simulación: objeto sin pulso sobre el sensor (reflexión alta, sin latidos)' : 'Simulación: dedo real recolocado', 'warn'); render();
+  };
+  // Calibración: mide 3 s de IR sin dedo y fija el umbral claramente por encima del reflejo ambiental
+  $('btnCal').onclick = () => {
+    const btn = $('btnCal'); btn.disabled = true; btn.textContent = 'MIDIENDO… RETIRA EL DEDO';
+    setTimeout(() => {
+      const p = Engine.ppg, N = Math.min(p.raw.len, Math.round(p.fs * 3));
+      let sum = 0, mx = 0; for (let k = 0; k < N; k++) { const v = p.raw.last(k); sum += v; if (v > mx) mx = v; }
+      const ambient = N ? sum / N : 0;
+      const thr = Math.max(1000, Math.round(Math.max(ambient * 3, mx + 3000) / 500) * 500); // válido también para sensores de señal baja
+      Engine.cfg.fingerThr = thr; $('cfgThr').value = thr;
+      localStorage.setItem('ares.fingerThr', thr);
+      $('calInfo').textContent = `Sin dedo: IR medio ${Math.round(ambient)} (máx ${Math.round(mx)}) → umbral ${thr}. Guardado en este navegador.`;
+      Engine.event(`Calibración sin dedo: umbral de contacto = ${thr}`, 'ok');
+      btn.disabled = false; btn.textContent = 'CALIBRAR SIN DEDO (3 s)';
+    }, 3000);
+  };
+  const savedThr = +localStorage.getItem('ares.fingerThr'); if (savedThr) Engine.cfg.fingerThr = savedThr;
+  $("btnLostAction").onclick = () => (Engine.simActive() ? toggleFinger() : startSim());
+  $("btnSim").onclick = () => (Engine.source === "sim" ? stopSim() : startSim());
+  $('cfgThr').value = Engine.cfg.fingerThr; $('cfgOff').value = Engine.cfg.tempOffset; $('cfgFail').checked = Engine.cfg.failover;
+  $('cfgThr').onchange = (e) => { Engine.cfg.fingerThr = +e.target.value; localStorage.setItem('ares.fingerThr', Engine.cfg.fingerThr); };
+  $('cfgOff').onchange = (e) => { Engine.cfg.tempOffset = +e.target.value; };
+  $('cfgFail').onchange = (e) => { Engine.cfg.failover = e.target.checked; localStorage.setItem("ares.failover", e.target.checked ? "1" : "0"); };
+
+  /* ---------------------------------------------------------- arranque */
+  // Sin brazalete: telemetría SIMULADA desde el inicio (etiquetada como SIMULACIÓN en la barra y en las tarjetas).
+  // En cuanto el ESP32 abre el puerto USB, Serial.open() cambia la fuente a 'serial' (hardware real) automáticamente.
+  Engine.idleSource = "sim"; Engine.source = "sim"; Engine.sim.finger = true; Engine.sim.object = false;
+  Engine.cfg.failover = localStorage.getItem("ares.failover") === "1";
+  $("cfgFail").checked = Engine.cfg.failover;
+  setPreset(PRESETS[0]);
+  Engine.subscribe(render);
+  Engine.start();
+  // Autoconexión: si bridge.rb ve el ESP32, conectar sin pulsar nada; si no, recordar el último puerto Web Serial
+  Bridge.status().then((st) => { bridgeOk = !!st; if (st && st.device) Bridge.connect(); else { Serial.init(); Serial.tryAutoReconnect(); } render(); });
+  Engine.event('BIO-ASTRO en línea · SIMULACIÓN activa hasta conectar el ESP32 por USB');
+  requestAnimationFrame(frame);
+})();
+</script>
+<script src="./ares-imu-ui.js?v=83"></script>
+<script src="./vendor/three.r128.min.js"></script>
+<script src="./vendor/OrbitControls.r128.js"></script>
+<script src="./vendor/CSS2DRenderer.r128.js"></script>
+<script src="./ares-nasa.js?v=83"></script>
+<script src="./ares-body3d.js?v=83"></script>
+<script src="./ares-body.js?v=83"></script>
+<script src="./ares-rad.js?v=83"></script>
+<script src="./ares-ai.js?v=83"></script>
+<script src="./ares-shell.js?v=83"></script>
+<link rel="stylesheet" href="./ares-theme.css?v=83" />
+</body>
+</html>

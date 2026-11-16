@@ -1,0 +1,60 @@
+BIO-ASTRO // OS v4.5  ·  Equipo MIB  ·  NASA Space Apps 2026
+=====================================================================
+
+CÓMO ABRIRLO EN WINDOWS (10 u 11)
+---------------------------------
+1. Descomprime el ZIP completo en una carpeta (clic derecho > "Extraer todo").
+   No lo abras desde dentro del ZIP.
+2. Doble clic en  INICIAR-WINDOWS.bat
+   - Se abre una ventana negra (el servidor local) y la consola en el navegador:
+     http://localhost:8765/max30102.html
+   - Deja esa ventana abierta mientras usas la consola.
+   - Si Windows muestra "Windows protegió su PC": "Más información" > "Ejecutar de todas formas".
+3. Usa Google Chrome o Microsoft Edge (Firefox y Safari no tienen Web Serial).
+
+Opción rápida sin servidor: doble clic en  BIO-ASTRO-archivo-unico.html
+   Funciona todo (3D, simulador, brazalete USB, IA local, NASA DONKI/NOAA y Claude),
+   salvo los enlaces a estudios de NASA OSDR, que necesitan el servidor.
+
+CONECTAR EL BRAZALETE (ESP32 + MAX30102 + MPU6050)
+--------------------------------------------------
+1. Conecta el ESP32 por USB.
+2. En la consola pulsa "CONECTAR ESP32 · USB" y elige el puerto COM que aparezca.
+   Solo la primera vez: después la consola se reconecta sola a ese COM al abrirla
+   o al volver a enchufar el cable.
+3. Si no aparece ningún puerto:
+   - ESP32-C3 / ESP32-S3 con USB nativo: Windows lo reconoce solo; prueba otro cable
+     (muchos cables solo cargan y no transmiten datos).
+   - ESP32 WROOM: instala el driver del chip USB de la placa
+     (CP210x de Silicon Labs, o CH340 de WCH).
+4. Sin hardware: menú "SIM" > "USAR SIMULADOR".
+
+CLAVES (opcionales, se guardan solo en tu navegador)
+---------------------------------------------------
+- NASA: pestaña "NASA / HAB" > campo "NASA API key" (gratis en https://api.nasa.gov).
+  Sin clave usa DEMO_KEY, que tiene un límite bajo de peticiones.
+- Claude (IA): pestaña "AI SURGEON" > botón de configuración. Sin clave funciona el motor
+  experto local.
+
+CONTENIDO
+---------
+INICIAR-WINDOWS.bat       lanzador para Windows
+servidor-windows.ps1      servidor local (PowerShell, ya incluido en Windows): web + proxy NASA + proxy Claude
+BIO-ASTRO-archivo-unico.html   toda la consola en un solo archivo (generado con bundle.rb)
+max30102.html             página principal (versión por módulos, para editar)
+ares-*.js, ares-theme.css módulos: DSP, IMU, cuerpo 3D, NASA, radiación, IA, interfaz
+vendor/                   Three.js r128 + OrbitControls + CSS2DRenderer
+bridge.rb                 servidor para Mac/Linux (ruby bridge.rb) con puente serie
+bundle.rb                 regenera BIO-ASTRO-archivo-unico.html (ruby bundle.rb → dist/)
+firmware/                 código Arduino del brazalete:
+   max30102_mpu6050_c3/   ESP32-C3, MAX30102 + MPU6050 en GPIO 6 (SDA) / 7 (SCL)  ← el actual
+   max30102_c3/           ESP32-C3, solo MAX30102
+   max30102_wroom/        ESP32 WROOM, SDA 21 / SCL 22
+   max30102_s3_estacion/  ESTACIÓN ESP32-S3: MAX30102 + OLED en GPIO 6 (SDA) / 7 (SCL),
+                          termistor en GPIO 16. La OLED muestra FC, SpO2 y temperatura del dedo.
+                          Librerías: SparkFun MAX3010x, Adafruit SSD1306, Adafruit GFX
+   max30102_s3/           ESP32-S3, solo MAX30102 (SDA 8 / SCL 9)
+   max30102_sensor/, ares_wristband/  versiones anteriores
+index.html, test-dsp.js   tablero antiguo y pruebas del DSP
+
+Prototipo de investigación — no es un dispositivo médico.
